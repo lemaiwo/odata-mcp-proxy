@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "cpi-admin": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "SAP_DESTINATION_NAME": "CPIDestination",
+        "SAP_CPI_BASE_URL": "https://your-tenant.it-cpi018.cfapps.eu10.hana.ondemand.com",
+        "SAP_CPI_TOKEN_URL": "https://your-tenant.authentication.eu10.hana.ondemand.com/oauth/token",
+        "SAP_CPI_CLIENT_ID": "your-client-id",
+        "SAP_CPI_CLIENT_SECRET": "your-client-secret",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}

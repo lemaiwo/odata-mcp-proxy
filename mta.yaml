@@ -1,0 +1,55 @@
+_schema-version: "3.1"
+ID: cpi-admin-mcp-server
+version: 1.0.0
+description: MCP server for SAP BTP Integration Suite administration
+
+parameters:
+  enable-parallel-deployments: true
+
+modules:
+  - name: cpi-admin-mcp-server
+    type: nodejs
+    path: .
+    parameters:
+      memory: 512M
+      disk-quota: 1G
+      buildpack: nodejs_buildpack
+      health-check-type: http
+      health-check-http-endpoint: /health
+      health-check-timeout: 180
+      command: npm run start:http
+    build-parameters:
+      builder: npm
+      build-commands:
+        - npm ci
+        - npm run build
+      ignore:
+        - node_modules/
+        - src/
+        - .git/
+        - docs/
+        - .taskmaster/
+    requires:
+      - name: cpi-mcp-destination
+      - name: cpi-mcp-connectivity
+      - name: cpi-mcp-xsuaa
+
+resources:
+  - name: cpi-mcp-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  - name: cpi-mcp-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
+
+  - name: cpi-mcp-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: xs-security.json

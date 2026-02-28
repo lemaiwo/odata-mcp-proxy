@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx task-master-ai:*)",
+      "Bash(npx task-master:*)",
+      "Bash(printf \\\\n\\\\nn\\\\n:*)",
+      "Bash(claude mcp:*)",
+      "WebFetch(domain:api.sap.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:help.sap.com)",
+      "WebFetch(domain:blogs.sap.com)",
+      "WebFetch(domain:community.sap.com)",
+      "WebFetch(domain:sapzero2hero.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(do npx:*)",
+      "Bash(rm:*)",
+      "Bash(npm run:*)",
+      "Bash(find:*)",
+      "Bash(git:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

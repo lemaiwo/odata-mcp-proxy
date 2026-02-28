@@ -1,0 +1,378 @@
+<context>
+# Overview
+
+This project creates an MCP (Model Context Protocol) server that exposes **all** SAP BTP Integration Suite administration OData APIs as MCP tools. Unlike the existing `cpi-mcp-server` by vadimklimov which only covers integration content read operations, this server provides full CRUD access to all six OData API categories available at https://api.sap.com/package/CloudIntegrationAPI/odata — enabling AI-powered administration of SAP BTP Integration Suite.
+
+The target user is an **SAP Integration Suite administrator** who wants to use AI assistants (Claude, etc.) to manage, monitor, and troubleshoot their Cloud Integration tenant. This is NOT for business end users consuming integration flows, but for the people maintaining them.
+
+The project reuses the proven architecture from `btp-sap-odata-to-mcp-server` (by lemaiwo): a Node.js/TypeScript MCP server that runs on SAP BTP Cloud Foundry, uses BTP Destinations for connectivity and authentication, and registers tools via a static tool registry. However, instead of dynamically discovering OData services from an SAP backend, this server uses a **hardcoded static list** of all Cloud Integration OData API entity sets with their known schemas.
+
+# Core Features
+
+## 1. Static Tool Registry for Cloud Integration APIs
+- All six Cloud Integration OData API categories are registered as MCP tools at startup
+- No dynamic discovery needed — the API surface is well-known and stable
+- Each entity set gets appropriate tools (list, get, create, update, delete) based on what the API supports
+- Tool schemas are defined statically in code, matching the OData entity metadata from the SAP API Business Hub
+
+## 2. Full Cloud Integration OData API Coverage
+The following six API categories and their entity sets must be supported:
+
+### Integration Content API (`/api/v1/`)
+- **IntegrationPackages** — CRUD on integration packages
+- **IntegrationDesigntimeArtifacts** — CRUD on design-time artifacts (iflows, value mappings, etc.) with sub-resources: Resources, Configurations
+- **IntegrationRuntimeArtifacts** — Read deployed artifacts and their status, deploy/undeploy operations
+- **ValueMappingDesigntimeArtifacts** — CRUD on value mapping design-time artifacts with ValMapSchema navigation
+- **MessageMappingDesigntimeArtifacts** — CRUD on message mapping artifacts
+- **ScriptCollectionDesigntimeArtifacts** — CRUD on script collection artifacts
+- **CustomTagConfigurations** — Read/write custom tag configurations
+- **BuildAndDeployStatus** — Read build and deploy status
+
+### Message Processing Logs API (`/api/v1/`)
+- **MessageProcessingLogs** — Read message processing logs with navigation to: MessageProcessingLogAttachments, ErrorInformations, AdapterAttributes, MessageStoreEntries, CustomHeaderProperties
+- **IdMapFromId2s** — Read ID mapping entries
+- **IdempotentRepositoryEntries** — Read idempotent repository entries
+
+### Message Stores API (`/api/v1/`)
+- **MessageStoreEntries** — Read entries from the message store
+- **NumberRanges** — Read/write number range configurations
+- **DataStoreEntries** — CRUD on data store entries
+- **Variables** — CRUD on variables
+- **JmsBrokers** — Read JMS broker information
+- **JmsResources** — Read JMS resource information (queues, etc.)
+
+### Log Files API (`/api/v1/`)
+- **LogFiles** — Read HTTP and trace log files
+- **LogFileArchives** — Read archived log files
+
+### Partner Directory API (`/api/v1/`)
+- **Partners** — CRUD on partner entries
+- **StringParameters** — CRUD on string parameters
+- **BinaryParameters** — CRUD on binary parameters
+- **AlternativePartners** — CRUD on alternative partner entries
+- **AuthorizedUsers** — CRUD on authorized user entries
+
+### Security Content API (`/api/v1/`)
+- **KeystoreEntries** — Read/manage keystore entries (certificates, key pairs)
+- **CertificateResources** — Read certificate chain details
+- **SSHKeyResources** — Read SSH key details
+- **UserCredentials** — CRUD on user credential artifacts
+- **OAuth2ClientCredentials** — CRUD on OAuth2 client credential artifacts
+- **SecureParameters** — CRUD on secure parameter artifacts
+- **CertificateUserMappings** — CRUD on certificate-to-user mappings
+- **AccessPolicies** — CRUD on access policies with ArtifactReferences navigation
+
+## 3. BTP Destination-Based Connectivity
+- Hostname and authentication credentials come from a BTP Destination (same pattern as btp-sap-odata-to-mcp-server)
+- Supports OAuth2 Client Credentials grant type via a Process Integration Runtime service instance
+- Single destination for all API calls (all APIs share the same base URL and credentials)
+- Local development support via environment variables or default-env.json
+
+## 4. BTP Cloud Foundry Deployment
+- Packaged as an MTA (Multi-Target Application) for deployment to BTP Cloud Foundry
+- Uses XSUAA for user authentication
+- Health check endpoint
+- Configurable logging
+
+## 5. MCP Protocol Compliance
+- Implements MCP protocol using the official `@modelcontextprotocol/sdk`
+- Supports Streamable HTTP transport (for BTP deployment)
+- Supports stdio transport (for local Claude Desktop usage)
+- Session management for multi-turn conversations
+
+# User Experience
+
+## User Persona: SAP Integration Suite Administrator
+- Manages integration packages, flows, value mappings, and scripts
+- Monitors message processing and troubleshoots errors
+- Manages security artifacts (certificates, credentials, keystores)
+- Configures partner directory entries for B2B scenarios
+- Reviews log files for debugging
+
+## Key User Flows
+
+### Monitoring & Troubleshooting
+1. "Show me all failed messages from today" → queries MessageProcessingLogs with $filter
+2. "What's the error for message ID X?" → navigates to ErrorInformations
+3. "Show me the latest log files" → queries LogFiles
+4. "Which artifacts are in error state?" → queries IntegrationRuntimeArtifacts with status filter
+
+### Content Management
+1. "List all integration packages" → queries IntegrationPackages
+2. "Show me the configuration of iflow X" → queries Configurations navigation property
+3. "Deploy this integration flow" → POST to deploy endpoint
+4. "Update the externalized parameter X to value Y" → PATCH on Configurations
+
+### Security Administration
+1. "Show me all expiring certificates" → queries KeystoreEntries with validity filter
+2. "List all user credential artifacts" → queries UserCredentials
+3. "Create a new OAuth2 client credential" → POST to OAuth2ClientCredentials
+4. "Which access policies exist?" → queries AccessPolicies
+
+### Partner Directory Management
+1. "List all partners" → queries Partners
+2. "Add a string parameter for partner X" → POST to StringParameters
+3. "Update the authorized users for partner X" → manages AuthorizedUsers
+</context>
+
+<PRD>
+# Technical Architecture
+
+## System Components
+
+```
+┌─────────────────────────────────────────────┐
+│             AI Client (Claude)              │
+│         (Claude Desktop / API / MCP)        │
+└──────────────────┬──────────────────────────┘
+                   │ MCP Protocol (HTTP/stdio)
+                   ▼
+┌─────────────────────────────────────────────┐
+│          CPI Admin MCP Server               │
+│  ┌─────────────────────────────────────┐    │
+│  │   Express.js + MCP SDK Server       │    │
+│  │   (Streamable HTTP + stdio)         │    │
+│  └──────────────┬──────────────────────┘    │
+│  ┌──────────────▼──────────────────────┐    │
+│  │  Static Tool Registry               │    │
+│  │  (All CI OData entities hardcoded)  │    │
+│  └──────────────┬──────────────────────┘    │
+│  ┌──────────────▼──────────────────────┐    │
+│  │  SAP Client (OData V2 HTTP calls)   │    │
+│  │  - GET, POST, PATCH, DELETE         │    │
+│  │  - CSRF token handling              │    │
+│  │  - OData query options              │    │
+│  └──────────────┬──────────────────────┘    │
+│  ┌──────────────▼──────────────────────┐    │
+│  │  Destination Service                │    │
+│  │  - Resolves BTP Destination         │    │
+│  │  - OAuth2 Client Credentials        │    │
+│  └──────────────┬──────────────────────┘    │
+└─────────────────┼───────────────────────────┘
+                  │ HTTPS + OAuth2 Bearer Token
+                  ▼
+┌─────────────────────────────────────────────┐
+│    SAP Cloud Integration Tenant             │
+│    (OData API at /api/v1/*)                 │
+└─────────────────────────────────────────────┘
+```
+
+## Technology Stack
+- **Runtime**: Node.js 18+ with TypeScript 5.0+
+- **MCP SDK**: `@modelcontextprotocol/sdk` (latest)
+- **HTTP Framework**: Express.js
+- **SAP Cloud SDK**: `@sap-cloud-sdk/connectivity`, `@sap-cloud-sdk/http-client`
+- **SAP Auth**: `@sap/xsenv`, `@sap/xssec`
+- **Validation**: Zod
+- **Logging**: Winston + `@sap/logging`
+- **Build**: TypeScript compiler, MTA Build Tool (MBT)
+- **Deployment**: SAP BTP Cloud Foundry via MTA
+
+## Data Model
+All entity types and their properties are defined statically in TypeScript interfaces, matching the OData metadata from the SAP API Business Hub. The OData APIs are OData V2 using JSON format.
+
+### Key OData Conventions
+- Base path: `https://<tmn-host>/api/v1/`
+- CSRF protection: Fetch token via `GET` with `X-CSRF-Token: Fetch` header, send back on mutating requests
+- Pagination: `$top`, `$skip`, `$inlinecount`
+- Filtering: `$filter` with OData V2 filter syntax
+- Selection: `$select` for field projection
+- Expansion: `$expand` for navigation properties
+- Ordering: `$orderby`
+
+## APIs and Integrations
+- **SAP BTP Destination Service**: Resolves destination configuration (URL, auth)
+- **SAP Process Integration Runtime**: Provides OAuth2 Client Credentials for Cloud Integration API access
+- **XSUAA**: Authenticates MCP server users (administrators)
+
+## Infrastructure Requirements
+- SAP BTP subaccount with Cloud Foundry enabled
+- SAP Integration Suite subscription with Cloud Integration capability
+- Process Integration Runtime service instance (plan: `api`) with roles:
+  - `WorkspacePackagesRead` / `WorkspacePackagesEdit` (for integration content)
+  - `MonitoringDataRead` (for monitoring/logs)
+  - `WorkspaceArtifactsDeploy` (for deploy operations)
+  - `AuthGroup_Administrator` or specific security roles (for security content)
+- Destination service instance (lite plan)
+- Connectivity service instance (lite plan, if cloud connector needed)
+- XSUAA service instance (application plan)
+
+# Development Roadmap
+
+## Phase 1: Project Foundation & Core Infrastructure
+Set up the project scaffolding, BTP deployment configuration, and core connectivity layer.
+
+- Initialize Node.js/TypeScript project with MCP SDK, Express, SAP Cloud SDK dependencies
+- Create the MTA deployment descriptor (`mta.yaml`) with required BTP service bindings (destination, xsuaa)
+- Create `xs-security.json` with appropriate scopes and role templates
+- Implement the destination service module that resolves the BTP destination and obtains OAuth2 tokens
+- Implement the base SAP HTTP client that:
+  - Fetches and caches CSRF tokens
+  - Sends authenticated OData V2 requests (GET, POST, PATCH, DELETE)
+  - Handles OData error responses and extracts meaningful error messages
+  - Supports OData query options ($filter, $select, $expand, $top, $skip, $orderby, $inlinecount)
+- Implement configuration management (environment variables, logging)
+- Implement health check endpoint
+- Create `.env.example` and `example-default-env.json` for local development
+
+## Phase 2: MCP Server & Static Tool Registry Framework
+Build the MCP server with transport support and the static tool registry pattern.
+
+- Implement the MCP server using `@modelcontextprotocol/sdk` with:
+  - Streamable HTTP transport (for BTP deployment)
+  - stdio transport (for local/Claude Desktop usage)
+  - Session management
+- Build the static tool registry framework:
+  - Define a tool definition format (entity name, supported operations, input schema, description)
+  - Implement tool registration from static definitions
+  - Implement the tool call handler that routes to the SAP client
+  - Support for navigation properties (e.g., MessageProcessingLogs → ErrorInformations)
+- Implement Zod-based input validation for all tool parameters
+- Set up Express routes for MCP protocol endpoints
+
+## Phase 3: Integration Content API Tools
+Register all Integration Content API entity sets as MCP tools.
+
+- Define and register tools for:
+  - `IntegrationPackages` (list, get, create, update, delete)
+  - `IntegrationDesigntimeArtifacts` (list, get, create, update, delete, download resources, upload resources)
+  - `IntegrationRuntimeArtifacts` (list, get, deploy, undeploy)
+  - `ValueMappingDesigntimeArtifacts` (list, get, create, update, delete)
+  - `MessageMappingDesigntimeArtifacts` (list, get, create, update, delete)
+  - `ScriptCollectionDesigntimeArtifacts` (list, get, create, update, delete)
+  - `CustomTagConfigurations` (list, get, create, update, delete)
+  - `BuildAndDeployStatus` (list, get)
+- Handle special operations:
+  - Deploy/undeploy artifacts via POST actions
+  - Download/upload artifact resources (binary content)
+  - Navigation from packages to contained artifacts
+
+## Phase 4: Monitoring API Tools (Message Processing Logs, Message Stores, Log Files)
+Register monitoring-related API entity sets.
+
+- Define and register tools for Message Processing Logs:
+  - `MessageProcessingLogs` (list with filters, get by ID)
+  - Navigation: `MessageProcessingLogAttachments`, `ErrorInformations`, `AdapterAttributes`, `MessageStoreEntries`, `CustomHeaderProperties`
+  - `IdMapFromId2s` (list)
+  - `IdempotentRepositoryEntries` (list)
+- Define and register tools for Message Stores:
+  - `MessageStoreEntries` (list, get)
+  - `DataStoreEntries` (list, get, create, update, delete)
+  - `Variables` (list, get, create, update, delete)
+  - `NumberRanges` (list, get)
+  - `JmsBrokers` (list)
+  - `JmsResources` (list)
+- Define and register tools for Log Files:
+  - `LogFiles` (list, get/download)
+  - `LogFileArchives` (list, get/download)
+
+## Phase 5: Security Content & Partner Directory API Tools
+Register security and partner directory API entity sets.
+
+- Define and register tools for Security Content:
+  - `KeystoreEntries` (list, get, create, update, delete)
+  - `CertificateResources` (list, get)
+  - `SSHKeyResources` (list, get)
+  - `UserCredentials` (list, get, create, update, delete)
+  - `OAuth2ClientCredentials` (list, get, create, update, delete)
+  - `SecureParameters` (list, get, create, update, delete)
+  - `CertificateUserMappings` (list, get, create, update, delete)
+  - `AccessPolicies` (list, get, create, update, delete) with `ArtifactReferences` navigation
+- Define and register tools for Partner Directory:
+  - `Partners` (list, get, create, update, delete)
+  - `StringParameters` (list, get, create, update, delete)
+  - `BinaryParameters` (list, get, create, update, delete)
+  - `AlternativePartners` (list, get, create, update, delete)
+  - `AuthorizedUsers` (list, get, create, update, delete)
+
+## Phase 6: Polish, Testing & Documentation
+Final hardening, testing, and documentation.
+
+- Add comprehensive error handling and user-friendly error messages
+- Implement rate limiting and request timeout configuration
+- Add request/response logging for debugging
+- Write deployment documentation (README, DEPLOYMENT.md, LOCAL_RUN.md)
+- Test all tools against a live Cloud Integration tenant
+- Optimize tool descriptions for LLM understanding (clear, concise, with examples)
+- Add `.env.example` with all configuration options documented
+
+# Logical Dependency Chain
+
+1. **Phase 1 (Foundation)** must come first — everything depends on the HTTP client, destination service, and project setup
+2. **Phase 2 (MCP Server & Registry)** depends on Phase 1 — the tool registry framework needs the SAP client to execute calls
+3. **Phases 3, 4, 5 (API Tools)** can be developed in parallel once Phase 2 is complete — they are independent API categories each using the same registry framework. However, **Phase 3 (Integration Content)** is recommended first as it is the most commonly used API and provides the quickest visible value
+4. **Phase 6 (Polish)** depends on all previous phases being functionally complete
+
+The fastest path to something usable:
+- Phase 1 → Phase 2 → Phase 3 gives a working MCP server with integration content management (the most-used admin capability)
+- Phases 4 and 5 can then be added incrementally
+
+# Risks and Mitigations
+
+## CSRF Token Handling
+- **Risk**: Cloud Integration APIs require CSRF tokens for all mutating operations (POST, PUT, PATCH, DELETE). Token caching and refresh logic can be tricky.
+- **Mitigation**: Implement a CSRF token manager that fetches tokens before write operations and retries on 403 (token expired).
+
+## OData V2 Complexity
+- **Risk**: OData V2 has complex filter syntax, navigation properties, and batch operations that differ from REST conventions.
+- **Mitigation**: Build a robust OData query builder. Start with simple $filter/$select support and add complexity incrementally.
+
+## Tool Count vs. LLM Context
+- **Risk**: With ~35+ entity sets each having up to 5 operations, the total tool count could reach 100+, which may overwhelm LLM context windows.
+- **Mitigation**: Group related operations (e.g., one tool per entity with an `operation` parameter) or implement a hierarchical discovery pattern similar to btp-sap-odata-to-mcp-server. Consider making tool registration configurable so admins can enable only the API categories they need.
+
+## API Authorization Roles
+- **Risk**: Different API categories require different authorization roles on the Process Integration Runtime service instance. Missing roles cause 403 errors.
+- **Mitigation**: Document required roles clearly per API category. Implement graceful error handling that tells the user which role is missing.
+
+## Binary Content Handling
+- **Risk**: Some operations involve binary content (downloading/uploading artifact resources, certificates, log files). MCP tools return text content.
+- **Mitigation**: For downloads, return base64-encoded content or metadata with size info. For uploads, accept base64-encoded content as input.
+
+## MVP Scope
+- **Risk**: Building all 6 API categories with full CRUD is a large scope.
+- **Mitigation**: MVP should cover Phase 1-3 (foundation + integration content). This covers the most common admin workflows and validates the architecture. Phases 4-5 add monitoring and security capabilities.
+
+# Appendix
+
+## SAP Cloud Integration OData API Reference
+- API Package: https://api.sap.com/package/CloudIntegrationAPI/odata
+- SAP Help Documentation: https://help.sap.com/docs/integration-suite/sap-integration-suite/odata-api
+- All APIs use base path: `https://<tenant-tmn-host>/api/v1/`
+- Protocol: OData V2 with JSON format
+- Authentication: OAuth2 Client Credentials via Process Integration Runtime service instance
+
+## Reference Implementations
+- **cpi-mcp-server** (vadimklimov): Go-based MCP server for CPI read operations — https://github.com/vadimklimov/cpi-mcp-server
+- **btp-sap-odata-to-mcp-server** (lemaiwo): Node.js MCP server with BTP destination integration — https://github.com/lemaiwo/btp-sap-odata-to-mcp-server
+
+## Required BTP Services
+| Service | Plan | Purpose |
+|---------|------|---------|
+| Process Integration Runtime | api | OAuth2 credentials for CI API access |
+| Destination | lite | Stores connection details to CI tenant |
+| XSUAA | application | Authenticates MCP server users |
+
+## Key Dependencies
+| Package | Purpose |
+|---------|---------|
+| `@modelcontextprotocol/sdk` | MCP protocol implementation |
+| `@sap-cloud-sdk/connectivity` | BTP destination resolution |
+| `@sap-cloud-sdk/http-client` | Authenticated HTTP calls |
+| `@sap/xsenv` | BTP service binding resolution |
+| `@sap/xssec` | JWT token validation |
+| `express` | HTTP server framework |
+| `zod` | Runtime input validation |
+| `winston` | Structured logging |
+| `dotenv` | Local development configuration |
+
+## Environment Variables
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `SAP_DESTINATION_NAME` | Yes | - | BTP Destination name pointing to CI tenant |
+| `MCP_TRANSPORT` | No | `http` | Transport mode: `http` or `stdio` |
+| `PORT` | No | `4004` | HTTP server port |
+| `LOG_LEVEL` | No | `info` | Logging level (error, warn, info, debug) |
+| `ENABLED_API_CATEGORIES` | No | `all` | Comma-separated list: integration-content, message-processing-logs, message-stores, log-files, partner-directory, security-content |
+| `REQUEST_TIMEOUT` | No | `60000` | HTTP request timeout in ms |
+</PRD>

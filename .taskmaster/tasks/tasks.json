@@ -1,0 +1,728 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "23",
+        "title": "Initialize Node.js/TypeScript Project Structure",
+        "description": "Set up the foundational Node.js project with TypeScript configuration, ESLint, and required folder structure for the MCP server.",
+        "details": "1. Initialize npm project:\n   ```bash\n   npm init -y\n   ```\n\n2. Install core dependencies:\n   ```bash\n   npm install @modelcontextprotocol/sdk @sap-cloud-sdk/connectivity @sap-cloud-sdk/http-client @sap/xsenv @sap/xssec express zod winston dotenv\n   npm install -D typescript @types/node @types/express ts-node nodemon\n   ```\n\n3. Create tsconfig.json:\n   ```json\n   {\n     \"compilerOptions\": {\n       \"target\": \"ES2022\",\n       \"module\": \"NodeNext\",\n       \"moduleResolution\": \"NodeNext\",\n       \"outDir\": \"./dist\",\n       \"rootDir\": \"./src\",\n       \"strict\": true,\n       \"esModuleInterop\": true,\n       \"skipLibCheck\": true,\n       \"declaration\": true\n     },\n     \"include\": [\"src/**/*\"],\n     \"exclude\": [\"node_modules\", \"dist\"]\n   }\n   ```\n\n4. Create folder structure:\n   - src/\n     - client/ (SAP HTTP client)\n     - config/ (configuration management)\n     - server/ (MCP server, Express)\n     - tools/ (tool registry, definitions)\n     - types/ (TypeScript interfaces)\n     - utils/ (utilities)\n     - index.ts (entry point)\n\n5. Update package.json scripts:\n   ```json\n   {\n     \"type\": \"module\",\n     \"scripts\": {\n       \"build\": \"tsc\",\n       \"start\": \"node dist/index.js\",\n       \"dev\": \"nodemon --exec ts-node src/index.ts\"\n     }\n   }\n   ```",
+        "testStrategy": "1. Verify npm install completes without errors\n2. Verify tsc compiles without errors\n3. Verify folder structure matches specification\n4. Test npm run dev starts without immediate crashes",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:29:58.751Z"
+      },
+      {
+        "id": "24",
+        "title": "Implement Configuration Management Module",
+        "description": "Create a centralized configuration module that loads settings from environment variables with validation and defaults.",
+        "details": "1. Create src/config/index.ts:\n   ```typescript\n   import { config as dotenvConfig } from 'dotenv';\n   import { z } from 'zod';\n\n   dotenvConfig();\n\n   const configSchema = z.object({\n     sapDestinationName: z.string().min(1),\n     mcpTransport: z.enum(['http', 'stdio']).default('http'),\n     port: z.coerce.number().default(4004),\n     logLevel: z.enum(['error', 'warn', 'info', 'debug']).default('info'),\n     enabledApiCategories: z.string().default('all'),\n     requestTimeout: z.coerce.number().default(60000)\n   });\n\n   export type AppConfig = z.infer<typeof configSchema>;\n\n   export function loadConfig(): AppConfig {\n     const rawConfig = {\n       sapDestinationName: process.env.SAP_DESTINATION_NAME,\n       mcpTransport: process.env.MCP_TRANSPORT,\n       port: process.env.PORT,\n       logLevel: process.env.LOG_LEVEL,\n       enabledApiCategories: process.env.ENABLED_API_CATEGORIES,\n       requestTimeout: process.env.REQUEST_TIMEOUT\n     };\n\n     const result = configSchema.safeParse(rawConfig);\n     if (!result.success) {\n       throw new Error(`Configuration error: ${result.error.message}`);\n     }\n     return result.data;\n   }\n\n   export const config = loadConfig();\n   ```\n\n2. Create .env.example with all documented variables\n3. Create example-default-env.json for local CF development",
+        "testStrategy": "1. Test loadConfig throws when SAP_DESTINATION_NAME missing\n2. Test default values are applied correctly\n3. Test invalid enum values are rejected\n4. Test port coercion from string works",
+        "priority": "high",
+        "dependencies": [
+          "23"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:32:01.793Z"
+      },
+      {
+        "id": "25",
+        "title": "Implement Winston Logger with SAP Logging Integration",
+        "description": "Create a structured logging module using Winston that integrates with SAP logging for Cloud Foundry deployment.",
+        "details": "1. Create src/config/logger.ts:\n   ```typescript\n   import winston from 'winston';\n   import { config } from './index.js';\n\n   const logFormat = winston.format.combine(\n     winston.format.timestamp(),\n     winston.format.errors({ stack: true }),\n     winston.format.json()\n   );\n\n   export const logger = winston.createLogger({\n     level: config.logLevel,\n     format: logFormat,\n     defaultMeta: { service: 'cpi-mcp-server' },\n     transports: [\n       new winston.transports.Console({\n         format: process.env.NODE_ENV === 'production'\n           ? logFormat\n           : winston.format.combine(\n               winston.format.colorize(),\n               winston.format.simple()\n             )\n       })\n     ]\n   });\n\n   // Add request context logging helper\n   export function createRequestLogger(requestId: string) {\n     return logger.child({ requestId });\n   }\n   ```\n\n2. Export logger from config module",
+        "testStrategy": "1. Verify logger outputs to console\n2. Test log levels are respected\n3. Test child logger includes requestId\n4. Verify JSON format in production mode",
+        "priority": "high",
+        "dependencies": [
+          "24"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:32:20.494Z"
+      },
+      {
+        "id": "26",
+        "title": "Implement BTP Destination Service Client",
+        "description": "Create the destination service module that resolves BTP destinations and obtains OAuth2 tokens for Cloud Integration API access.",
+        "details": "1. Create src/client/destination.ts:\n   ```typescript\n   import { getDestination, Destination } from '@sap-cloud-sdk/connectivity';\n   import { config } from '../config/index.js';\n   import { logger } from '../config/logger.js';\n\n   let cachedDestination: Destination | null = null;\n   let cacheExpiry: number = 0;\n   const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes\n\n   export async function getCloudIntegrationDestination(): Promise<Destination> {\n     const now = Date.now();\n     if (cachedDestination && now < cacheExpiry) {\n       return cachedDestination;\n     }\n\n     logger.debug(`Resolving destination: ${config.sapDestinationName}`);\n\n     try {\n       const destination = await getDestination({\n         destinationName: config.sapDestinationName,\n         useCache: true\n       });\n\n       if (!destination) {\n         throw new Error(`Destination '${config.sapDestinationName}' not found`);\n       }\n\n       cachedDestination = destination;\n       cacheExpiry = now + CACHE_TTL_MS;\n\n       logger.info(`Destination resolved: ${destination.url}`);\n       return destination;\n     } catch (error) {\n       logger.error('Failed to resolve destination', { error });\n       throw error;\n     }\n   }\n\n   export function getBaseUrl(destination: Destination): string {\n     return `${destination.url}/api/v1`;\n   }\n\n   export function clearDestinationCache(): void {\n     cachedDestination = null;\n     cacheExpiry = 0;\n   }\n   ```",
+        "testStrategy": "1. Mock getDestination and verify caching behavior\n2. Test cache expiry triggers re-fetch\n3. Test error handling when destination not found\n4. Test getBaseUrl constructs correct path",
+        "priority": "high",
+        "dependencies": [
+          "25"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:35:08.843Z"
+      },
+      {
+        "id": "27",
+        "title": "Implement CSRF Token Manager",
+        "description": "Create a CSRF token manager that fetches, caches, and refreshes tokens for OData V2 mutating operations.",
+        "details": "1. Create src/client/csrf-manager.ts:\n   ```typescript\n   import { executeHttpRequest } from '@sap-cloud-sdk/http-client';\n   import { Destination } from '@sap-cloud-sdk/connectivity';\n   import { logger } from '../config/logger.js';\n\n   interface CsrfToken {\n     token: string;\n     cookies: string[];\n     fetchedAt: number;\n   }\n\n   const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 minutes\n   let cachedToken: CsrfToken | null = null;\n\n   export async function fetchCsrfToken(\n     destination: Destination,\n     baseUrl: string\n   ): Promise<CsrfToken> {\n     const now = Date.now();\n     if (cachedToken && now - cachedToken.fetchedAt < TOKEN_TTL_MS) {\n       return cachedToken;\n     }\n\n     logger.debug('Fetching CSRF token');\n\n     const response = await executeHttpRequest(destination, {\n       method: 'get',\n       url: baseUrl,\n       headers: { 'X-CSRF-Token': 'Fetch' }\n     });\n\n     const token = response.headers['x-csrf-token'];\n     const setCookies = response.headers['set-cookie'] || [];\n     const cookies = Array.isArray(setCookies) ? setCookies : [setCookies];\n\n     if (!token) {\n       throw new Error('No CSRF token in response');\n     }\n\n     cachedToken = { token, cookies, fetchedAt: now };\n     logger.debug('CSRF token fetched successfully');\n     return cachedToken;\n   }\n\n   export function clearCsrfCache(): void {\n     cachedToken = null;\n   }\n   ```",
+        "testStrategy": "1. Mock HTTP response and verify token extraction\n2. Test caching prevents redundant fetches\n3. Test cache expiry triggers refresh\n4. Test error when no token in response",
+        "priority": "high",
+        "dependencies": [
+          "26"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:35:17.236Z"
+      },
+      {
+        "id": "28",
+        "title": "Implement Base OData V2 HTTP Client",
+        "description": "Create the core OData V2 HTTP client supporting GET, POST, PATCH, DELETE with CSRF handling, error parsing, and query options.",
+        "details": "1. Create src/client/odata-client.ts:\n   ```typescript\n   import { executeHttpRequest, HttpResponse } from '@sap-cloud-sdk/http-client';\n   import { getCloudIntegrationDestination, getBaseUrl } from './destination.js';\n   import { fetchCsrfToken, clearCsrfCache } from './csrf-manager.js';\n   import { config } from '../config/index.js';\n   import { logger } from '../config/logger.js';\n\n   export interface ODataQueryOptions {\n     $filter?: string;\n     $select?: string;\n     $expand?: string;\n     $top?: number;\n     $skip?: number;\n     $orderby?: string;\n     $inlinecount?: 'allpages' | 'none';\n   }\n\n   function buildQueryString(options?: ODataQueryOptions): string {\n     if (!options) return '';\n     const params = new URLSearchParams();\n     for (const [key, value] of Object.entries(options)) {\n       if (value !== undefined) params.append(key, String(value));\n     }\n     const qs = params.toString();\n     return qs ? `?${qs}` : '';\n   }\n\n   export async function odataGet<T>(\n     entitySet: string,\n     key?: string,\n     options?: ODataQueryOptions\n   ): Promise<T> {\n     const destination = await getCloudIntegrationDestination();\n     const baseUrl = getBaseUrl(destination);\n     const keyPart = key ? `(${key})` : '';\n     const url = `${baseUrl}/${entitySet}${keyPart}${buildQueryString(options)}`;\n\n     logger.debug(`OData GET: ${url}`);\n\n     const response = await executeHttpRequest(destination, {\n       method: 'get',\n       url,\n       headers: { Accept: 'application/json' },\n       timeout: config.requestTimeout\n     });\n\n     return response.data as T;\n   }\n\n   export async function odataPost<T>(\n     entitySet: string,\n     data: Record<string, unknown>\n   ): Promise<T> {\n     const destination = await getCloudIntegrationDestination();\n     const baseUrl = getBaseUrl(destination);\n     const csrf = await fetchCsrfToken(destination, baseUrl);\n\n     const response = await executeHttpRequest(destination, {\n       method: 'post',\n       url: `${baseUrl}/${entitySet}`,\n       data,\n       headers: {\n         'Content-Type': 'application/json',\n         Accept: 'application/json',\n         'X-CSRF-Token': csrf.token,\n         Cookie: csrf.cookies.join('; ')\n       }\n     });\n\n     return response.data as T;\n   }\n\n   // Similar implementations for odataPatch, odataDelete\n   ```",
+        "testStrategy": "1. Test buildQueryString with various options\n2. Mock HTTP and test odataGet constructs correct URL\n3. Test odataPost includes CSRF token\n4. Test retry on 403 refreshes CSRF token",
+        "priority": "high",
+        "dependencies": [
+          "27"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:35:25.683Z"
+      },
+      {
+        "id": "29",
+        "title": "Implement OData Error Parser",
+        "description": "Create error parsing utilities that extract meaningful error messages from OData V2 error responses.",
+        "details": "1. Create src/client/error-parser.ts:\n   ```typescript\n   export interface ODataError {\n     code: string;\n     message: string;\n     details?: string;\n     httpStatus?: number;\n   }\n\n   export function parseODataError(error: unknown): ODataError {\n     if (error instanceof Error && 'response' in error) {\n       const response = (error as any).response;\n       const data = response?.data;\n\n       // OData V2 error format\n       if (data?.error) {\n         return {\n           code: data.error.code || 'UNKNOWN',\n           message: data.error.message?.value || data.error.message || 'Unknown error',\n           details: data.error.innererror?.errordetails?.[0]?.message,\n           httpStatus: response.status\n         };\n       }\n\n       return {\n         code: `HTTP_${response.status}`,\n         message: response.statusText || 'HTTP Error',\n         httpStatus: response.status\n       };\n     }\n\n     return {\n       code: 'UNKNOWN',\n       message: error instanceof Error ? error.message : String(error)\n     };\n   }\n\n   export function formatErrorForUser(error: ODataError): string {\n     let msg = error.message;\n     if (error.details) msg += ` - ${error.details}`;\n     if (error.httpStatus === 403) {\n       msg += ' (Check authorization roles on Process Integration Runtime service instance)';\n     }\n     return msg;\n   }\n   ```",
+        "testStrategy": "1. Test parsing OData V2 error format\n2. Test parsing plain HTTP errors\n3. Test formatErrorForUser adds role hint for 403\n4. Test handling of non-Error objects",
+        "priority": "high",
+        "dependencies": [
+          "28"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:35:34.185Z"
+      },
+      {
+        "id": "30",
+        "title": "Create MTA Deployment Descriptor",
+        "description": "Create the mta.yaml file with all required BTP service bindings for Cloud Foundry deployment.",
+        "details": "1. Create mta.yaml:\n   ```yaml\n   _schema-version: '3.1'\n   ID: cpi-mcp-server\n   version: 1.0.0\n   description: MCP Server for SAP Cloud Integration Administration\n\n   modules:\n     - name: cpi-mcp-server\n       type: nodejs\n       path: .\n       parameters:\n         memory: 256M\n         disk-quota: 512M\n         health-check-type: http\n         health-check-http-endpoint: /health/live\n       build-parameters:\n         builder: npm\n       requires:\n         - name: cpi-mcp-destination\n         - name: cpi-mcp-xsuaa\n       provides:\n         - name: cpi-mcp-server-api\n           properties:\n             url: ${default-url}\n\n   resources:\n     - name: cpi-mcp-destination\n       type: org.cloudfoundry.managed-service\n       parameters:\n         service: destination\n         service-plan: lite\n\n     - name: cpi-mcp-xsuaa\n       type: org.cloudfoundry.managed-service\n       parameters:\n         service: xsuaa\n         service-plan: application\n         path: ./xs-security.json\n   ```\n\n2. Create xs-security.json with scopes and role templates",
+        "testStrategy": "1. Validate mta.yaml with MTA Build Tool\n2. Verify xs-security.json is valid JSON\n3. Test mbt build succeeds\n4. Verify service bindings are correct",
+        "priority": "high",
+        "dependencies": [
+          "23"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:31:39.941Z"
+      },
+      {
+        "id": "31",
+        "title": "Create xs-security.json with Roles and Scopes",
+        "description": "Define XSUAA security configuration with appropriate scopes and role templates for MCP server authentication.",
+        "details": "1. Create xs-security.json:\n   ```json\n   {\n     \"xsappname\": \"cpi-mcp-server\",\n     \"tenant-mode\": \"dedicated\",\n     \"scopes\": [\n       {\n         \"name\": \"$XSAPPNAME.Admin\",\n         \"description\": \"Full admin access to CPI MCP Server\"\n       },\n       {\n         \"name\": \"$XSAPPNAME.Read\",\n         \"description\": \"Read-only access to CPI MCP Server\"\n       }\n     ],\n     \"role-templates\": [\n       {\n         \"name\": \"CPIAdmin\",\n         \"description\": \"CPI Administrator\",\n         \"scope-references\": [\"$XSAPPNAME.Admin\"]\n       },\n       {\n         \"name\": \"CPIViewer\",\n         \"description\": \"CPI Viewer\",\n         \"scope-references\": [\"$XSAPPNAME.Read\"]\n       }\n     ],\n     \"role-collections\": [\n       {\n         \"name\": \"CPI MCP Administrator\",\n         \"role-template-references\": [\"$XSAPPNAME.CPIAdmin\"]\n       }\n     ]\n   }\n   ```",
+        "testStrategy": "1. Validate JSON syntax\n2. Test deployment creates roles in BTP\n3. Verify role assignment works\n4. Test scope enforcement",
+        "priority": "high",
+        "dependencies": [
+          "30"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:31:49.928Z"
+      },
+      {
+        "id": "32",
+        "title": "Implement Express HTTP Server with Health Endpoints",
+        "description": "Create the Express.js HTTP server with health check, liveness, and readiness endpoints.",
+        "details": "1. Create src/server/http-server.ts:\n   ```typescript\n   import express, { Express, Request, Response } from 'express';\n   import { config } from '../config/index.js';\n   import { logger } from '../config/logger.js';\n\n   export function createHttpServer(): Express {\n     const app = express();\n\n     app.use(express.json());\n\n     // Liveness probe\n     app.get('/health/live', (req: Request, res: Response) => {\n       res.json({ status: 'ok', timestamp: new Date().toISOString() });\n     });\n\n     // Readiness probe - will be enhanced later\n     app.get('/health/ready', (req: Request, res: Response) => {\n       res.json({ status: 'ok', timestamp: new Date().toISOString() });\n     });\n\n     // Combined health endpoint\n     app.get('/health', (req: Request, res: Response) => {\n       res.json({\n         status: 'healthy',\n         timestamp: new Date().toISOString(),\n         version: process.env.npm_package_version || '1.0.0'\n       });\n     });\n\n     return app;\n   }\n\n   export async function startHttpServer(app: Express): Promise<void> {\n     return new Promise((resolve) => {\n       app.listen(config.port, () => {\n         logger.info(`HTTP server listening on port ${config.port}`);\n         resolve();\n       });\n     });\n   }\n   ```",
+        "testStrategy": "1. Test /health/live returns 200\n2. Test /health/ready returns 200\n3. Test /health returns version info\n4. Test server starts on configured port",
+        "priority": "high",
+        "dependencies": [
+          "25"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:35:42.715Z"
+      },
+      {
+        "id": "33",
+        "title": "Implement MCP Server Core with SDK",
+        "description": "Create the core MCP server using @modelcontextprotocol/sdk with server info and capabilities.",
+        "details": "1. Create src/server/mcp-server.ts:\n   ```typescript\n   import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n   import { logger } from '../config/logger.js';\n\n   export function createMcpServer(): McpServer {\n     const server = new McpServer({\n       name: 'cpi-mcp-server',\n       version: '1.0.0',\n       capabilities: {\n         tools: {},\n         resources: {}\n       }\n     });\n\n     // Add server info resource\n     server.resource('server-info', 'Server information', async () => ({\n       contents: [{\n         uri: 'cpi://server-info',\n         mimeType: 'application/json',\n         text: JSON.stringify({\n           name: 'CPI Admin MCP Server',\n           version: '1.0.0',\n           description: 'MCP server for SAP Cloud Integration administration'\n         })\n       }]\n     }));\n\n     logger.info('MCP server created');\n     return server;\n   }\n   ```",
+        "testStrategy": "1. Test server creation succeeds\n2. Test server-info resource returns correct data\n3. Test capabilities are set correctly",
+        "priority": "high",
+        "dependencies": [
+          "32"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:38:24.918Z"
+      },
+      {
+        "id": "34",
+        "title": "Implement Streamable HTTP Transport",
+        "description": "Add MCP Streamable HTTP transport support for BTP Cloud Foundry deployment.",
+        "details": "1. Update src/server/http-server.ts:\n   ```typescript\n   import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';\n   import { createMcpServer } from './mcp-server.js';\n\n   export function setupMcpHttpTransport(app: Express): void {\n     const mcpServer = createMcpServer();\n     const transport = new StreamableHTTPServerTransport({\n       sessionIdGenerator: () => crypto.randomUUID()\n     });\n\n     // Connect transport to MCP server\n     mcpServer.connect(transport);\n\n     // MCP endpoint\n     app.post('/mcp', async (req: Request, res: Response) => {\n       try {\n         await transport.handleRequest(req, res);\n       } catch (error) {\n         logger.error('MCP request error', { error });\n         res.status(500).json({ error: 'Internal server error' });\n       }\n     });\n\n     // SSE endpoint for streaming\n     app.get('/mcp/sse', async (req: Request, res: Response) => {\n       await transport.handleSSE(req, res);\n     });\n\n     logger.info('MCP HTTP transport configured');\n   }\n   ```",
+        "testStrategy": "1. Test POST /mcp accepts MCP protocol messages\n2. Test SSE endpoint establishes connection\n3. Test session ID generation\n4. Test error handling returns 500",
+        "priority": "high",
+        "dependencies": [
+          "33"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:38:33.731Z"
+      },
+      {
+        "id": "35",
+        "title": "Implement stdio Transport for Local Development",
+        "description": "Add MCP stdio transport support for local Claude Desktop usage.",
+        "details": "1. Create src/server/stdio-server.ts:\n   ```typescript\n   import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';\n   import { createMcpServer } from './mcp-server.js';\n   import { logger } from '../config/logger.js';\n\n   export async function startStdioServer(): Promise<void> {\n     const mcpServer = createMcpServer();\n     const transport = new StdioServerTransport();\n\n     await mcpServer.connect(transport);\n\n     logger.info('MCP stdio server started');\n\n     // Handle process signals\n     process.on('SIGINT', () => {\n       logger.info('Received SIGINT, shutting down');\n       process.exit(0);\n     });\n   }\n   ```\n\n2. Update src/index.ts to select transport based on config",
+        "testStrategy": "1. Test stdio transport initializes\n2. Test process signals handled\n3. Test MCP messages via stdin/stdout",
+        "priority": "medium",
+        "dependencies": [
+          "33"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:38:42.364Z"
+      },
+      {
+        "id": "36",
+        "title": "Create Tool Registry Framework",
+        "description": "Build the static tool registry framework that registers MCP tools from entity definitions.",
+        "details": "1. Create src/tools/types.ts:\n   ```typescript\n   import { z } from 'zod';\n\n   export type OperationType = 'list' | 'get' | 'create' | 'update' | 'delete';\n\n   export interface EntityToolDefinition {\n     entitySet: string;\n     apiCategory: string;\n     description: string;\n     supportedOperations: OperationType[];\n     keyProperty: string;\n     inputSchemas: Partial<Record<OperationType, z.ZodSchema>>;\n     navigationProperties?: NavigationPropertyDefinition[];\n   }\n\n   export interface NavigationPropertyDefinition {\n     name: string;\n     targetEntitySet: string;\n     description: string;\n     isCollection: boolean;\n   }\n   ```\n\n2. Create src/tools/registry.ts:\n   ```typescript\n   import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n   import { EntityToolDefinition, OperationType } from './types.js';\n   import { odataGet, odataPost, odataPatch, odataDelete } from '../client/odata-client.js';\n\n   export function registerEntityTools(\n     server: McpServer,\n     definition: EntityToolDefinition\n   ): void {\n     for (const op of definition.supportedOperations) {\n       registerOperation(server, definition, op);\n     }\n   }\n\n   function registerOperation(\n     server: McpServer,\n     def: EntityToolDefinition,\n     op: OperationType\n   ): void {\n     const toolName = `${def.entitySet}_${op}`;\n     const schema = def.inputSchemas[op];\n     // Register with server.tool()\n   }\n   ```",
+        "testStrategy": "1. Test registerEntityTools creates correct tool names\n2. Test all operation types are handled\n3. Test schema is passed to tool registration",
+        "priority": "high",
+        "dependencies": [
+          "33"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:38:51.459Z"
+      },
+      {
+        "id": "37",
+        "title": "Implement Tool Result Formatting",
+        "description": "Create utilities for formatting OData responses as MCP tool results with proper JSON structure.",
+        "details": "1. Create src/tools/result-formatter.ts:\n   ```typescript\n   import { ToolResult } from '@modelcontextprotocol/sdk/types.js';\n\n   export function formatODataResult(data: unknown): ToolResult {\n     const content = JSON.stringify(data, null, 2);\n     return {\n       content: [{\n         type: 'text',\n         text: content\n       }]\n     };\n   }\n\n   export function formatError(error: Error): ToolResult {\n     return {\n       content: [{\n         type: 'text',\n         text: `Error: ${error.message}`\n       }],\n       isError: true\n     };\n   }\n\n   export function formatSuccess(message: string): ToolResult {\n     return {\n       content: [{\n         type: 'text',\n         text: message\n       }]\n     };\n   }\n   ```",
+        "testStrategy": "1. Test formatODataResult produces valid JSON\n2. Test formatError sets isError flag\n3. Test formatSuccess returns simple message",
+        "priority": "high",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:39:00.272Z"
+      },
+      {
+        "id": "38",
+        "title": "Define IntegrationPackages Tool Definition",
+        "description": "Create the tool definition for IntegrationPackages entity with full CRUD operations.",
+        "details": "1. Create src/tools/definitions/integration-packages.ts:\n   ```typescript\n   import { z } from 'zod';\n   import { EntityToolDefinition } from '../types.js';\n\n   export const integrationPackagesDefinition: EntityToolDefinition = {\n     entitySet: 'IntegrationPackages',\n     apiCategory: 'integration-content',\n     description: 'Manage integration packages containing iflows and artifacts',\n     supportedOperations: ['list', 'get', 'create', 'update', 'delete'],\n     keyProperty: 'Id',\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional().describe('OData filter expression'),\n         $top: z.number().optional().describe('Max results'),\n         $skip: z.number().optional().describe('Skip results'),\n         $orderby: z.string().optional().describe('Sort order')\n       }),\n       get: z.object({\n         Id: z.string().describe('Package ID')\n       }),\n       create: z.object({\n         Id: z.string().describe('Unique package ID'),\n         Name: z.string().describe('Display name'),\n         Description: z.string().optional(),\n         ShortText: z.string().optional(),\n         Version: z.string().default('1.0.0')\n       }),\n       update: z.object({\n         Id: z.string(),\n         Name: z.string().optional(),\n         Description: z.string().optional(),\n         ShortText: z.string().optional()\n       }),\n       delete: z.object({\n         Id: z.string()\n       })\n     }\n   };\n   ```",
+        "testStrategy": "1. Verify schema validates correct inputs\n2. Test schema rejects invalid inputs\n3. Test all operations are defined",
+        "priority": "high",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.571Z"
+      },
+      {
+        "id": "39",
+        "title": "Define IntegrationDesigntimeArtifacts Tool Definition",
+        "description": "Create the tool definition for IntegrationDesigntimeArtifacts with composite key handling.",
+        "details": "1. Create src/tools/definitions/integration-designtime-artifacts.ts:\n   ```typescript\n   import { z } from 'zod';\n   import { EntityToolDefinition } from '../types.js';\n\n   export const integrationDesigntimeArtifactsDefinition: EntityToolDefinition = {\n     entitySet: 'IntegrationDesigntimeArtifacts',\n     apiCategory: 'integration-content',\n     description: 'Manage integration flow design-time artifacts',\n     supportedOperations: ['list', 'get', 'create', 'update', 'delete'],\n     keyProperty: \"Id='${Id}',Version='${Version}'\",\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional(),\n         PackageId: z.string().optional().describe('Filter by package')\n       }),\n       get: z.object({\n         Id: z.string().describe('Artifact ID'),\n         Version: z.string().default('active').describe('Version or \"active\"')\n       }),\n       create: z.object({\n         Id: z.string(),\n         Name: z.string(),\n         PackageId: z.string(),\n         ArtifactContent: z.string().describe('Base64 encoded ZIP')\n       }),\n       update: z.object({\n         Id: z.string(),\n         Version: z.string().default('active'),\n         Name: z.string().optional()\n       }),\n       delete: z.object({\n         Id: z.string(),\n         Version: z.string().default('active')\n       })\n     },\n     navigationProperties: [\n       {\n         name: 'Configurations',\n         targetEntitySet: 'Configurations',\n         description: 'Externalized parameters',\n         isCollection: true\n       },\n       {\n         name: 'Resources',\n         targetEntitySet: 'Resources',\n         description: 'Artifact resources',\n         isCollection: true\n       }\n     ]\n   };\n   ```",
+        "testStrategy": "1. Test composite key pattern is parsed\n2. Test navigation properties are defined\n3. Verify schema handles Version default",
+        "priority": "high",
+        "dependencies": [
+          "38"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "40",
+        "title": "Define IntegrationRuntimeArtifacts Tool Definition",
+        "description": "Create the tool definition for IntegrationRuntimeArtifacts for deployed artifact monitoring.",
+        "details": "1. Create src/tools/definitions/integration-runtime-artifacts.ts:\n   ```typescript\n   import { z } from 'zod';\n   import { EntityToolDefinition } from '../types.js';\n\n   export const integrationRuntimeArtifactsDefinition: EntityToolDefinition = {\n     entitySet: 'IntegrationRuntimeArtifacts',\n     apiCategory: 'integration-content',\n     description: 'Monitor deployed integration artifacts and their status',\n     supportedOperations: ['list', 'get'],\n     keyProperty: 'Id',\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional(),\n         Status: z.enum(['STARTED', 'STOPPED', 'ERROR']).optional()\n           .describe('Filter by runtime status')\n       }),\n       get: z.object({\n         Id: z.string().describe('Runtime artifact ID')\n       })\n     }\n   };\n   ```\n\n2. Note: Deploy/Undeploy are special actions handled separately",
+        "testStrategy": "1. Test list schema accepts Status filter\n2. Test get schema requires Id\n3. Verify no mutating operations",
+        "priority": "high",
+        "dependencies": [
+          "38"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "41",
+        "title": "Define ValueMappingDesigntimeArtifacts Tool Definition",
+        "description": "Create the tool definition for ValueMappingDesigntimeArtifacts entity.",
+        "details": "1. Create src/tools/definitions/value-mapping-artifacts.ts:\n   ```typescript\n   import { z } from 'zod';\n   import { EntityToolDefinition } from '../types.js';\n\n   export const valueMappingDesigntimeArtifactsDefinition: EntityToolDefinition = {\n     entitySet: 'ValueMappingDesigntimeArtifacts',\n     apiCategory: 'integration-content',\n     description: 'Manage value mapping design-time artifacts',\n     supportedOperations: ['list', 'get', 'create', 'update', 'delete'],\n     keyProperty: \"Id='${Id}',Version='${Version}'\",\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional(),\n         PackageId: z.string().optional()\n       }),\n       get: z.object({\n         Id: z.string(),\n         Version: z.string().default('active')\n       }),\n       create: z.object({\n         Id: z.string(),\n         Name: z.string(),\n         PackageId: z.string()\n       }),\n       update: z.object({\n         Id: z.string(),\n         Version: z.string().default('active'),\n         Name: z.string().optional()\n       }),\n       delete: z.object({\n         Id: z.string(),\n         Version: z.string().default('active')\n       })\n     },\n     navigationProperties: [\n       {\n         name: 'ValMapSchema',\n         targetEntitySet: 'ValMapSchema',\n         description: 'Value mapping schema',\n         isCollection: false\n       }\n     ]\n   };\n   ```",
+        "testStrategy": "1. Test composite key handling\n2. Test ValMapSchema navigation\n3. Verify CRUD operations defined",
+        "priority": "medium",
+        "dependencies": [
+          "38"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "42",
+        "title": "Define MessageMappingDesigntimeArtifacts Tool Definition",
+        "description": "Create the tool definition for MessageMappingDesigntimeArtifacts entity.",
+        "details": "1. Create src/tools/definitions/message-mapping-artifacts.ts with similar structure to value mappings\n2. Use composite key Id+Version\n3. Support CRUD operations",
+        "testStrategy": "1. Test schema validation\n2. Test composite key handling",
+        "priority": "medium",
+        "dependencies": [
+          "38"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "43",
+        "title": "Define ScriptCollectionDesigntimeArtifacts Tool Definition",
+        "description": "Create the tool definition for ScriptCollectionDesigntimeArtifacts entity.",
+        "details": "1. Create src/tools/definitions/script-collection-artifacts.ts\n2. Use composite key Id+Version\n3. Support CRUD operations\n4. Include Resources navigation property",
+        "testStrategy": "1. Test schema validation\n2. Test Resources navigation",
+        "priority": "medium",
+        "dependencies": [
+          "38"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "44",
+        "title": "Define CustomTagConfigurations and BuildAndDeployStatus Tools",
+        "description": "Create tool definitions for CustomTagConfigurations and BuildAndDeployStatus entities.",
+        "details": "1. Create src/tools/definitions/custom-tags.ts:\n   - CustomTagConfigurations: CRUD operations\n2. Create src/tools/definitions/build-deploy-status.ts:\n   - BuildAndDeployStatus: Read-only (list, get)",
+        "testStrategy": "1. Test schemas are valid\n2. Test BuildAndDeployStatus has no mutating ops",
+        "priority": "medium",
+        "dependencies": [
+          "38"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "45",
+        "title": "Define MessageProcessingLogs Tool Definition",
+        "description": "Create the tool definition for MessageProcessingLogs with all navigation properties.",
+        "details": "1. Create src/tools/definitions/message-processing-logs.ts:\n   ```typescript\n   import { z } from 'zod';\n   import { EntityToolDefinition } from '../types.js';\n\n   export const messageProcessingLogsDefinition: EntityToolDefinition = {\n     entitySet: 'MessageProcessingLogs',\n     apiCategory: 'message-processing-logs',\n     description: 'Query message processing logs for monitoring and troubleshooting',\n     supportedOperations: ['list', 'get'],\n     keyProperty: 'MessageGuid',\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional()\n           .describe('e.g., Status eq \\'FAILED\\' and LogStart gt datetime\\'2024-01-01T00:00:00\\''),\n         $top: z.number().optional().default(50),\n         $orderby: z.string().optional().default('LogStart desc'),\n         Status: z.enum(['COMPLETED', 'PROCESSING', 'RETRY', 'FAILED', 'ESCALATED']).optional(),\n         IntegrationFlowName: z.string().optional()\n       }),\n       get: z.object({\n         MessageGuid: z.string().describe('Message GUID')\n       })\n     },\n     navigationProperties: [\n       {\n         name: 'ErrorInformations',\n         targetEntitySet: 'ErrorInformations',\n         description: 'Error details for failed messages',\n         isCollection: true\n       },\n       {\n         name: 'MessageProcessingLogAttachments',\n         targetEntitySet: 'MessageProcessingLogAttachments',\n         description: 'Attachments stored during processing',\n         isCollection: true\n       },\n       {\n         name: 'AdapterAttributes',\n         targetEntitySet: 'AdapterAttributes',\n         description: 'Adapter-specific attributes',\n         isCollection: true\n       },\n       {\n         name: 'CustomHeaderProperties',\n         targetEntitySet: 'CustomHeaderProperties',\n         description: 'Custom headers set during processing',\n         isCollection: true\n       },\n       {\n         name: 'MessageStoreEntries',\n         targetEntitySet: 'MessageStoreEntries',\n         description: 'Related message store entries',\n         isCollection: true\n       }\n     ]\n   };\n   ```",
+        "testStrategy": "1. Test filter schema accepts OData syntax\n2. Test all navigation properties defined\n3. Test Status enum values",
+        "priority": "high",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "46",
+        "title": "Define DataStoreEntries and Variables Tool Definitions",
+        "description": "Create tool definitions for DataStoreEntries and Variables entities with CRUD.",
+        "details": "1. Create src/tools/definitions/data-store-entries.ts:\n   - DataStoreEntries: list, get, create, update, delete\n   - Key: composite (DataStoreName, IntegrationFlow, Id)\n2. Create src/tools/definitions/variables.ts:\n   - Variables: list, get, create, update, delete",
+        "testStrategy": "1. Test composite key handling for DataStoreEntries\n2. Test CRUD schemas",
+        "priority": "medium",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "47",
+        "title": "Define MessageStoreEntries and NumberRanges Tool Definitions",
+        "description": "Create tool definitions for MessageStoreEntries and NumberRanges entities.",
+        "details": "1. Create src/tools/definitions/message-store-entries.ts:\n   - Read-only access to message store\n2. Create src/tools/definitions/number-ranges.ts:\n   - NumberRanges: list, get operations",
+        "testStrategy": "1. Test schemas are read-only where appropriate",
+        "priority": "medium",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "48",
+        "title": "Define JmsBrokers and JmsResources Tool Definitions",
+        "description": "Create tool definitions for JmsBrokers and JmsResources entities.",
+        "details": "1. Create src/tools/definitions/jms.ts:\n   - JmsBrokers: list only\n   - JmsResources: list only (queues, topics)",
+        "testStrategy": "1. Test read-only schemas",
+        "priority": "low",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "49",
+        "title": "Define IdMapFromId2s and IdempotentRepositoryEntries Tool Definitions",
+        "description": "Create tool definitions for ID mapping and idempotent repository entries.",
+        "details": "1. Create src/tools/definitions/id-mapping.ts:\n   - IdMapFromId2s: list operation\n   - IdempotentRepositoryEntries: list operation",
+        "testStrategy": "1. Test read-only schemas",
+        "priority": "low",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "50",
+        "title": "Define LogFiles and LogFileArchives Tool Definitions",
+        "description": "Create tool definitions for LogFiles and LogFileArchives entities.",
+        "details": "1. Create src/tools/definitions/log-files.ts:\n   ```typescript\n   import { z } from 'zod';\n   import { EntityToolDefinition } from '../types.js';\n\n   export const logFilesDefinition: EntityToolDefinition = {\n     entitySet: 'LogFiles',\n     apiCategory: 'log-files',\n     description: 'Access HTTP and trace log files',\n     supportedOperations: ['list', 'get'],\n     keyProperty: 'Name',\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional(),\n         $top: z.number().optional().default(20),\n         $orderby: z.string().optional().default('LastModified desc')\n       }),\n       get: z.object({\n         Name: z.string().describe('Log file name')\n       })\n     }\n   };\n\n   export const logFileArchivesDefinition: EntityToolDefinition = {\n     entitySet: 'LogFileArchives',\n     apiCategory: 'log-files',\n     description: 'Access archived log files',\n     supportedOperations: ['list', 'get'],\n     keyProperty: 'Name',\n     inputSchemas: {\n       list: z.object({\n         $top: z.number().optional().default(20)\n       }),\n       get: z.object({\n         Name: z.string()\n       })\n     }\n   };\n   ```",
+        "testStrategy": "1. Test schemas\n2. Test download integration with binary handling",
+        "priority": "medium",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "51",
+        "title": "Define Partners Tool Definition",
+        "description": "Create the tool definition for Partners entity in Partner Directory API.",
+        "details": "1. Create src/tools/definitions/partners.ts:\n   ```typescript\n   export const partnersDefinition: EntityToolDefinition = {\n     entitySet: 'Partners',\n     apiCategory: 'partner-directory',\n     description: 'Manage B2B partner entries',\n     supportedOperations: ['list', 'get', 'create', 'update', 'delete'],\n     keyProperty: 'Pid',\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional(),\n         $top: z.number().optional()\n       }),\n       get: z.object({ Pid: z.string() }),\n       create: z.object({ Pid: z.string() }),\n       update: z.object({ Pid: z.string() }),\n       delete: z.object({ Pid: z.string() })\n     }\n   };\n   ```",
+        "testStrategy": "1. Test CRUD schemas",
+        "priority": "medium",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "52",
+        "title": "Define StringParameters and BinaryParameters Tool Definitions",
+        "description": "Create tool definitions for Partner Directory parameter entities.",
+        "details": "1. Create src/tools/definitions/partner-parameters.ts:\n   - StringParameters: CRUD with Pid+Id composite key\n   - BinaryParameters: CRUD with binary content handling",
+        "testStrategy": "1. Test composite key handling\n2. Test binary content schema for BinaryParameters",
+        "priority": "medium",
+        "dependencies": [
+          "51"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "53",
+        "title": "Define AlternativePartners and AuthorizedUsers Tool Definitions",
+        "description": "Create tool definitions for AlternativePartners and AuthorizedUsers entities.",
+        "details": "1. Create src/tools/definitions/partner-directory-extras.ts:\n   - AlternativePartners: CRUD\n   - AuthorizedUsers: CRUD",
+        "testStrategy": "1. Test CRUD schemas",
+        "priority": "medium",
+        "dependencies": [
+          "51"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "54",
+        "title": "Define KeystoreEntries Tool Definition",
+        "description": "Create the tool definition for KeystoreEntries entity in Security Content API.",
+        "details": "1. Create src/tools/definitions/keystore-entries.ts:\n   ```typescript\n   export const keystoreEntriesDefinition: EntityToolDefinition = {\n     entitySet: 'KeystoreEntries',\n     apiCategory: 'security-content',\n     description: 'Manage keystore entries (certificates, key pairs)',\n     supportedOperations: ['list', 'get', 'create', 'delete'],\n     keyProperty: 'Hexalias',\n     inputSchemas: {\n       list: z.object({\n         $filter: z.string().optional()\n           .describe('e.g., ValidNotAfter lt datetime\\'2025-01-01\\' for expiring certs'),\n         Type: z.enum(['Certificate', 'Key Pair', 'SSH Key']).optional()\n       }),\n       get: z.object({\n         Hexalias: z.string().describe('Hexadecimal alias')\n       }),\n       create: z.object({\n         Alias: z.string(),\n         Content: z.string().describe('Base64 encoded certificate/key')\n       }),\n       delete: z.object({\n         Hexalias: z.string()\n       })\n     },\n     navigationProperties: [\n       {\n         name: 'CertificateChain',\n         targetEntitySet: 'CertificateResources',\n         description: 'Certificate chain details',\n         isCollection: true\n       }\n     ]\n   };\n   ```",
+        "testStrategy": "1. Test filter for expiring certificates\n2. Test create with base64 content",
+        "priority": "high",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "55",
+        "title": "Define UserCredentials and OAuth2ClientCredentials Tool Definitions",
+        "description": "Create tool definitions for credential security artifacts.",
+        "details": "1. Create src/tools/definitions/credentials.ts:\n   - UserCredentials: list, get, create, update, delete\n   - OAuth2ClientCredentials: list, get, create, update, delete",
+        "testStrategy": "1. Test CRUD schemas\n2. Verify sensitive fields handled appropriately",
+        "priority": "high",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "56",
+        "title": "Define SecureParameters and CertificateUserMappings Tool Definitions",
+        "description": "Create tool definitions for SecureParameters and CertificateUserMappings.",
+        "details": "1. Create src/tools/definitions/secure-params.ts:\n   - SecureParameters: CRUD\n2. Create src/tools/definitions/cert-user-mappings.ts:\n   - CertificateUserMappings: CRUD",
+        "testStrategy": "1. Test CRUD schemas",
+        "priority": "medium",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "57",
+        "title": "Define AccessPolicies Tool Definition",
+        "description": "Create the tool definition for AccessPolicies with ArtifactReferences navigation.",
+        "details": "1. Create src/tools/definitions/access-policies.ts:\n   ```typescript\n   export const accessPoliciesDefinition: EntityToolDefinition = {\n     entitySet: 'AccessPolicies',\n     apiCategory: 'security-content',\n     description: 'Manage artifact access policies',\n     supportedOperations: ['list', 'get', 'create', 'update', 'delete'],\n     keyProperty: 'RoleName',\n     inputSchemas: {\n       list: z.object({ $filter: z.string().optional() }),\n       get: z.object({ RoleName: z.string() }),\n       create: z.object({\n         RoleName: z.string(),\n         Description: z.string().optional()\n       }),\n       update: z.object({\n         RoleName: z.string(),\n         Description: z.string().optional()\n       }),\n       delete: z.object({ RoleName: z.string() })\n     },\n     navigationProperties: [\n       {\n         name: 'ArtifactReferences',\n         targetEntitySet: 'ArtifactReferences',\n         description: 'Artifacts protected by this policy',\n         isCollection: true\n       }\n     ]\n   };\n   ```",
+        "testStrategy": "1. Test ArtifactReferences navigation\n2. Test CRUD operations",
+        "priority": "medium",
+        "dependencies": [
+          "36"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "58",
+        "title": "Define CertificateResources and SSHKeyResources Tool Definitions",
+        "description": "Create read-only tool definitions for certificate and SSH key details.",
+        "details": "1. Create src/tools/definitions/certificate-resources.ts:\n   - CertificateResources: list, get (read-only)\n   - SSHKeyResources: list, get (read-only)",
+        "testStrategy": "1. Test read-only schemas",
+        "priority": "low",
+        "dependencies": [
+          "54"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "59",
+        "title": "Create Tool Definitions Index and Registration",
+        "description": "Create the index file that exports all tool definitions and registers them with the MCP server.",
+        "details": "1. Create src/tools/definitions/index.ts:\n   ```typescript\n   import { integrationPackagesDefinition } from './integration-packages.js';\n   import { integrationDesigntimeArtifactsDefinition } from './integration-designtime-artifacts.js';\n   // ... import all definitions\n\n   export const allToolDefinitions = [\n     integrationPackagesDefinition,\n     integrationDesigntimeArtifactsDefinition,\n     // ... all definitions\n   ];\n   ```\n\n2. Update src/tools/registry.ts:\n   ```typescript\n   export function registerAllTools(server: McpServer, enabledCategories: Set<string>): void {\n     for (const def of allToolDefinitions) {\n       if (enabledCategories.has(def.apiCategory) || enabledCategories.has('all')) {\n         registerEntityTools(server, def);\n       }\n     }\n   }\n   ```",
+        "testStrategy": "1. Test all definitions are exported\n2. Test registration filters by category\n3. Test 'all' enables everything",
+        "priority": "high",
+        "dependencies": [
+          "38",
+          "39",
+          "40",
+          "45",
+          "50",
+          "51",
+          "54",
+          "55",
+          "57"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "60",
+        "title": "Implement Main Entry Point",
+        "description": "Create the main index.ts entry point that initializes and starts the server.",
+        "details": "1. Create src/index.ts:\n   ```typescript\n   import { config } from './config/index.js';\n   import { logger } from './config/logger.js';\n   import { createHttpServer, startHttpServer, setupMcpHttpTransport } from './server/http-server.js';\n   import { startStdioServer } from './server/stdio-server.js';\n   import { performHealthCheck } from './server/health.js';\n\n   async function main(): Promise<void> {\n     logger.info('Starting CPI MCP Server', { config: { ...config, sapDestinationName: '[REDACTED]' } });\n\n     // Startup validation\n     const health = await performHealthCheck();\n     if (health.status === 'unhealthy') {\n       logger.error('Startup validation failed', { health });\n       process.exit(1);\n     }\n\n     if (config.mcpTransport === 'stdio') {\n       await startStdioServer();\n     } else {\n       const app = createHttpServer();\n       setupMcpHttpTransport(app);\n       await startHttpServer(app);\n     }\n\n     logger.info('Server started successfully');\n   }\n\n   main().catch((error) => {\n     logger.error('Fatal error', { error });\n     process.exit(1);\n   });\n   ```",
+        "testStrategy": "1. Test server starts in HTTP mode\n2. Test server starts in stdio mode\n3. Test startup failure on unhealthy check",
+        "priority": "high",
+        "dependencies": [
+          "34",
+          "35",
+          "59"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "61",
+        "title": "Create Rate Limiting and Request Timeout Middleware",
+        "description": "Implement rate limiting and request timeout handling for the HTTP server.",
+        "details": "1. Add rate limiting middleware:\n   ```typescript\n   import rateLimit from 'express-rate-limit';\n\n   const limiter = rateLimit({\n     windowMs: 60 * 1000, // 1 minute\n     max: 100, // 100 requests per minute\n     message: { error: 'Too many requests' }\n   });\n\n   app.use('/mcp', limiter);\n   ```\n\n2. Add request timeout handling:\n   ```typescript\n   app.use((req, res, next) => {\n     res.setTimeout(config.requestTimeout, () => {\n       res.status(408).json({ error: 'Request timeout' });\n     });\n     next();\n   });\n   ```",
+        "testStrategy": "1. Test rate limit triggers after threshold\n2. Test timeout handling",
+        "priority": "medium",
+        "dependencies": [
+          "32"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:39:08.942Z"
+      },
+      {
+        "id": "62",
+        "title": "Create Request/Response Logging Middleware",
+        "description": "Add middleware for logging incoming requests and responses for debugging.",
+        "details": "1. Create request logging middleware:\n   ```typescript\n   app.use((req, res, next) => {\n     const requestId = crypto.randomUUID();\n     req.requestId = requestId;\n\n     const start = Date.now();\n     logger.info('Request received', {\n       requestId,\n       method: req.method,\n       path: req.path\n     });\n\n     res.on('finish', () => {\n       logger.info('Response sent', {\n         requestId,\n         statusCode: res.statusCode,\n         durationMs: Date.now() - start\n       });\n     });\n\n     next();\n   });\n   ```",
+        "testStrategy": "1. Verify requests are logged\n2. Verify response timing is captured\n3. Test requestId is unique per request",
+        "priority": "medium",
+        "dependencies": [
+          "32",
+          "25"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:39:17.598Z"
+      },
+      {
+        "id": "63",
+        "title": "Implement XSUAA JWT Validation Middleware",
+        "description": "Add JWT token validation for XSUAA-protected endpoints in Cloud Foundry.",
+        "details": "1. Create src/server/auth.ts:\n   ```typescript\n   import { createSecurityContext } from '@sap/xssec';\n   import xsenv from '@sap/xsenv';\n\n   const xsuaaCredentials = xsenv.getServices({ xsuaa: { tag: 'xsuaa' } }).xsuaa;\n\n   export async function validateJwt(req, res, next) {\n     const authHeader = req.headers.authorization;\n     if (!authHeader?.startsWith('Bearer ')) {\n       return res.status(401).json({ error: 'Missing authorization token' });\n     }\n\n     const token = authHeader.substring(7);\n     try {\n       const securityContext = await createSecurityContext(token, xsuaaCredentials);\n       req.user = securityContext;\n       next();\n     } catch (error) {\n       logger.warn('JWT validation failed', { error });\n       res.status(401).json({ error: 'Invalid token' });\n     }\n   }\n   ```\n\n2. Apply to MCP endpoints:\n   ```typescript\n   app.use('/mcp', validateJwt);\n   ```",
+        "testStrategy": "1. Test valid JWT is accepted\n2. Test invalid JWT returns 401\n3. Test missing token returns 401",
+        "priority": "medium",
+        "dependencies": [
+          "31",
+          "32"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:39:26.060Z"
+      },
+      {
+        "id": "64",
+        "title": "Create Local Development Setup Scripts",
+        "description": "Create scripts and configuration for local development without BTP services.",
+        "details": "1. Create scripts/setup-local.sh:\n   ```bash\n   #!/bin/bash\n   cp .env.example .env\n   cp example-default-env.json default-env.json\n   echo \"Edit .env and default-env.json with your credentials\"\n   ```\n\n2. Create example-default-env.json:\n   ```json\n   {\n     \"VCAP_SERVICES\": {\n       \"destination\": [{\n         \"credentials\": {\n           \"clientid\": \"...\",\n           \"clientsecret\": \"...\",\n           \"uri\": \"...\"\n         }\n       }]\n     },\n     \"destinations\": [{\n       \"name\": \"CPI_TENANT\",\n       \"url\": \"https://your-tenant.it-cpi.cfapps.eu10.hana.ondemand.com\",\n       \"authentication\": \"OAuth2ClientCredentials\",\n       \"tokenServiceURL\": \"...\",\n         \"clientId\": \"...\",\n         \"clientSecret\": \"...\"\n     }]\n   }\n   ```\n\n3. Update .env.example with CPI-specific variables",
+        "testStrategy": "1. Test setup script creates files\n2. Test local server starts with default-env.json",
+        "priority": "medium",
+        "dependencies": [
+          "24"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:33:41.839Z"
+      },
+      {
+        "id": "65",
+        "title": "Create README.md Documentation",
+        "description": "Write comprehensive README with installation, configuration, and usage instructions.",
+        "details": "Create README.md covering:\n1. Overview and features\n2. Prerequisites (BTP subaccount, services)\n3. Installation steps\n4. Configuration (environment variables, destination setup)\n5. Deployment to BTP CF\n6. Local development setup\n7. Available MCP tools by category\n8. Usage examples with Claude\n9. Troubleshooting common issues\n10. Required API authorization roles",
+        "testStrategy": "1. Review documentation completeness\n2. Test setup steps work\n3. Verify examples are accurate",
+        "priority": "medium",
+        "dependencies": [
+          "60"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:47:53.965Z"
+      },
+      {
+        "id": "66",
+        "title": "Create DEPLOYMENT.md Guide",
+        "description": "Write detailed deployment guide for BTP Cloud Foundry.",
+        "details": "Create DEPLOYMENT.md covering:\n1. BTP subaccount prerequisites\n2. Creating required service instances\n3. Configuring destination service\n4. Setting up Process Integration Runtime credentials\n5. Building MTA archive\n6. Deploying to CF\n7. Assigning role collections\n8. Verifying deployment",
+        "testStrategy": "1. Follow guide on test environment\n2. Verify all steps succeed",
+        "priority": "medium",
+        "dependencies": [
+          "30",
+          "31"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:35:51.411Z"
+      },
+      {
+        "id": "67",
+        "title": "Create LOCAL_RUN.md Guide",
+        "description": "Write guide for running the MCP server locally with Claude Desktop.",
+        "details": "Create LOCAL_RUN.md covering:\n1. Setting up local credentials\n2. Configuring default-env.json\n3. Running in stdio mode\n4. Configuring Claude Desktop\n5. Testing tool calls\n6. Debugging tips",
+        "testStrategy": "1. Follow guide on local machine\n2. Test Claude Desktop integration",
+        "priority": "medium",
+        "dependencies": [
+          "35",
+          "64"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:47:53.966Z"
+      },
+      {
+        "id": "68",
+        "title": "Implement Tool Description Optimization for LLMs",
+        "description": "Optimize tool descriptions with clear, concise language and examples for better LLM understanding.",
+        "details": "1. Review all tool definitions and improve descriptions:\n   - Use active voice\n   - Include common use cases\n   - Add filter examples for list operations\n   - Clarify parameter purposes\n\n2. Example improvements:\n   ```typescript\n   description: 'List integration packages. Common filters: ' +\n     \"$filter=Name eq 'PackageName' or $filter=Mode eq 'EDIT_ALLOWED'. \" +\n     'Use $expand=IntegrationDesigntimeArtifacts to include artifacts.'\n   ```\n\n3. Add parameter-level descriptions with examples",
+        "testStrategy": "1. Test tools in Claude Desktop\n2. Verify LLM selects correct tools\n3. Validate parameter suggestions",
+        "priority": "medium",
+        "dependencies": [
+          "59"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:47:53.966Z"
+      },
+      {
+        "id": "69",
+        "title": "Implement Graceful Shutdown Handling",
+        "description": "Add proper graceful shutdown handling for clean server termination.",
+        "details": "1. Create src/server/shutdown.ts:\n   ```typescript\n   import { logger } from '../config/logger.js';\n\n   let isShuttingDown = false;\n\n   export function setupGracefulShutdown(cleanup: () => Promise<void>): void {\n     const shutdown = async (signal: string) => {\n       if (isShuttingDown) return;\n       isShuttingDown = true;\n\n       logger.info(`Received ${signal}, shutting down gracefully`);\n\n       try {\n         await cleanup();\n         logger.info('Cleanup completed');\n         process.exit(0);\n       } catch (error) {\n         logger.error('Cleanup failed', { error });\n         process.exit(1);\n       }\n     };\n\n     process.on('SIGTERM', () => shutdown('SIGTERM'));\n     process.on('SIGINT', () => shutdown('SIGINT'));\n   }\n   ```",
+        "testStrategy": "1. Test SIGTERM triggers cleanup\n2. Test SIGINT triggers cleanup\n3. Verify no duplicate shutdowns",
+        "priority": "low",
+        "dependencies": [
+          "60"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:42:57.572Z"
+      },
+      {
+        "id": "70",
+        "title": "Add MCP Resources for API Documentation",
+        "description": "Create MCP resources that provide API documentation and usage examples.",
+        "details": "1. Add documentation resources:\n   ```typescript\n   server.resource('tool-guide', 'Guide for using CPI MCP tools', async () => ({\n     contents: [{\n       uri: 'cpi://tool-guide',\n       mimeType: 'text/markdown',\n       text: `# CPI MCP Server Tool Guide\\n\\n` +\n         `## Integration Content\\n` +\n         `- IntegrationPackages_list: List all packages\\n` +\n         `- IntegrationDesigntimeArtifacts_deploy: Deploy an artifact\\n` +\n         `...`\n     }]\n   }));\n\n   server.resource('filter-examples', 'OData filter examples', async () => ({\n     contents: [{\n       uri: 'cpi://filter-examples',\n       mimeType: 'text/markdown',\n       text: `# OData Filter Examples\\n\\n` +\n         `## Message Processing Logs\\n` +\n         `- Failed today: Status eq 'FAILED' and LogStart gt datetime'2024-01-01'\\n` +\n         `...`\n     }]\n   }));\n   ```",
+        "testStrategy": "1. Test resources are accessible\n2. Verify content is useful",
+        "priority": "low",
+        "dependencies": [
+          "33"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:47:53.966Z"
+      },
+      {
+        "id": "71",
+        "title": "Implement Error Recovery and Retry Logic",
+        "description": "Add automatic retry logic for transient failures in OData client.",
+        "details": "1. Update src/client/odata-client.ts with retry logic:\n   ```typescript\n   import { setTimeout } from 'timers/promises';\n\n   const MAX_RETRIES = 3;\n   const RETRY_DELAYS = [1000, 2000, 4000];\n\n   async function withRetry<T>(\n     operation: () => Promise<T>,\n     retryOn: (error: unknown) => boolean\n   ): Promise<T> {\n     let lastError: unknown;\n\n     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {\n       try {\n         return await operation();\n       } catch (error) {\n         lastError = error;\n         if (!retryOn(error) || attempt === MAX_RETRIES) throw error;\n\n         logger.warn(`Retry attempt ${attempt + 1}`, { error });\n         await setTimeout(RETRY_DELAYS[attempt]);\n       }\n     }\n\n     throw lastError;\n   }\n\n   function isRetryable(error: unknown): boolean {\n     const status = (error as any)?.response?.status;\n     return status === 429 || status === 503 || status === 504;\n   }\n   ```",
+        "testStrategy": "1. Test retry on 429/503/504\n2. Test no retry on 400/401\n3. Test max retries limit",
+        "priority": "medium",
+        "dependencies": [
+          "28",
+          "29"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:39:34.666Z"
+      },
+      {
+        "id": "72",
+        "title": "Create Claude Desktop Configuration Example",
+        "description": "Create example Claude Desktop configuration file for local MCP server connection.",
+        "details": "1. Create claude-desktop-config.example.json:\n   ```json\n   {\n     \"mcpServers\": {\n       \"cpi-admin\": {\n         \"command\": \"node\",\n         \"args\": [\"dist/index.js\"],\n         \"cwd\": \"/path/to/cpi-mcp-server\",\n         \"env\": {\n           \"MCP_TRANSPORT\": \"stdio\",\n           \"SAP_DESTINATION_NAME\": \"CPI_TENANT\",\n           \"LOG_LEVEL\": \"info\"\n         }\n       }\n     }\n   }\n   ```\n\n2. Document in LOCAL_RUN.md",
+        "testStrategy": "1. Test configuration works with Claude Desktop\n2. Verify tools are discovered",
+        "priority": "medium",
+        "dependencies": [
+          "35"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-02-27T22:47:53.966Z"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2026-02-27T22:39:34.668Z",
+      "taskCount": 50,
+      "completedCount": 21,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}

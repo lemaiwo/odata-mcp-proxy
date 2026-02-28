@@ -1,0 +1,43 @@
+{
+  "VCAP_SERVICES": {
+    "destination": [
+      {
+        "label": "destination",
+        "plan": "lite",
+        "name": "cpi-mcp-destination",
+        "credentials": {
+          "clientid": "your-destination-client-id",
+          "clientsecret": "your-destination-client-secret",
+          "uri": "https://destination-configuration.cfapps.eu10.hana.ondemand.com",
+          "url": "https://your-subdomain.authentication.eu10.hana.ondemand.com"
+        }
+      }
+    ],
+    "connectivity": [
+      {
+        "label": "connectivity",
+        "plan": "lite",
+        "name": "cpi-mcp-connectivity",
+        "credentials": {
+          "clientid": "your-connectivity-client-id",
+          "clientsecret": "your-connectivity-client-secret",
+          "onpremise_proxy_host": "connectivityproxy.internal.cf.eu10.hana.ondemand.com",
+          "onpremise_proxy_port": "20003"
+        }
+      }
+    ],
+    "xsuaa": [
+      {
+        "label": "xsuaa",
+        "plan": "application",
+        "name": "cpi-mcp-xsuaa",
+        "credentials": {
+          "clientid": "your-xsuaa-client-id",
+          "clientsecret": "your-xsuaa-client-secret",
+          "url": "https://your-subdomain.authentication.eu10.hana.ondemand.com",
+          "xsappname": "cpi-admin-mcp-server"
+        }
+      }
+    ]
+  }
+}

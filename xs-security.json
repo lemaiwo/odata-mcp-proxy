@@ -1,0 +1,44 @@
+{
+  "xsappname": "cpi-admin-mcp-server",
+  "tenant-mode": "dedicated",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.read",
+      "description": "Read SAP CPI data"
+    },
+    {
+      "name": "$XSAPPNAME.write",
+      "description": "Write/modify SAP CPI data"
+    },
+    {
+      "name": "$XSAPPNAME.admin",
+      "description": "Full admin access"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "MCPViewer",
+      "description": "View SAP CPI data via MCP server",
+      "scope-references": [
+        "$XSAPPNAME.read"
+      ]
+    },
+    {
+      "name": "MCPEditor",
+      "description": "View and modify SAP CPI data via MCP server",
+      "scope-references": [
+        "$XSAPPNAME.read",
+        "$XSAPPNAME.write"
+      ]
+    },
+    {
+      "name": "MCPAdmin",
+      "description": "Full administrative access to SAP CPI via MCP server",
+      "scope-references": [
+        "$XSAPPNAME.read",
+        "$XSAPPNAME.write",
+        "$XSAPPNAME.admin"
+      ]
+    }
+  ]
+}
