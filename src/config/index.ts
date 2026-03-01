@@ -1,7 +1,9 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, isAbsolute } from 'node:path';
 import type { EntitySetDefinition } from '../tools/registry.js';
-import apiConfigJson from './api-config.json' with { type: 'json' };
 
 // Load .env file into process.env on import
 dotenv.config();
@@ -9,24 +11,13 @@ dotenv.config();
 /**
  * Zod schema for the application configuration.
  *
- * - SAP_DESTINATION_NAME is required (must be non-empty).
- * - All other variables have sensible defaults.
+ * - All variables have sensible defaults.
  * - ENABLED_API_CATEGORIES is stored as raw string here; the parsed
  *   array is derived in loadConfig().
  * - PORT and REQUEST_TIMEOUT are coerced from strings to numbers so
  *   that env-var strings like "4004" are accepted.
  */
 const configSchema = z.object({
-  sapDestinationName: z
-    .string({
-      required_error:
-        "SAP_DESTINATION_NAME is required. Set it to the BTP Destination name pointing to your Cloud Integration tenant.",
-    })
-    .min(1, {
-      message:
-        "SAP_DESTINATION_NAME must not be empty. Set it to the BTP Destination name pointing to your Cloud Integration tenant.",
-    }),
-
   mcpTransport: z.enum(["http", "stdio"]).default("http"),
 
   port: z.coerce
@@ -45,6 +36,8 @@ const configSchema = z.object({
     .int()
     .positive()
     .default(60000),
+
+  apiConfigFile: z.string().default('api-config.json'),
 });
 
 /** Inferred type from the raw Zod schema (enabledApiCategories is still a string). */
@@ -82,17 +75,16 @@ function parseCategories(raw: string): string[] {
  * Environment variables are read from `process.env` (already populated by
  * `dotenv.config()` at module-load time).
  *
- * @throws {Error} with a descriptive message when required variables are
- *   missing or any value fails validation.
+ * @throws {Error} with a descriptive message when any value fails validation.
  */
 export function loadConfig(): Config {
   const rawInput = {
-    sapDestinationName: process.env.SAP_DESTINATION_NAME,
     mcpTransport: process.env.MCP_TRANSPORT,
     port: process.env.PORT,
     logLevel: process.env.LOG_LEVEL,
     enabledApiCategories: process.env.ENABLED_API_CATEGORIES,
     requestTimeout: process.env.REQUEST_TIMEOUT,
+    apiConfigFile: process.env.API_CONFIG_FILE,
   };
 
   const result = configSchema.safeParse(rawInput);
@@ -127,6 +119,26 @@ export const config: Config = loadConfig();
 // ─── API Configuration (loaded from static JSON) ────────────────────────────
 
 /**
+ * A single API backend: its BTP destination name, OData path prefix,
+ * and the entity sets it exposes.
+ */
+export interface ApiDefinition {
+  /** Logical name for this API (used for logging). */
+  name: string;
+  /** BTP Destination name (or local env var prefix) used to authenticate requests. */
+  destination: string;
+  /** OData path prefix, e.g. "/api/v1". */
+  pathPrefix: string;
+  /** Entity sets exposed by this API. */
+  entitySets: EntitySetDefinition[];
+  /**
+   * Whether mutating requests require a CSRF token (default: true).
+   * Set to false for REST APIs that do not use SAP OData CSRF protection.
+   */
+  csrfProtected?: boolean;
+}
+
+/**
  * Shape of the static API configuration loaded from api-config.json.
  */
 export interface ApiConfig {
@@ -135,14 +147,22 @@ export interface ApiConfig {
     version: string;
     description: string;
   };
-  api: {
-    pathPrefix: string;
-  };
-  entitySets: EntitySetDefinition[];
+  /** One entry per backend API. Each has its own destination, path prefix, and entity sets. */
+  apis: ApiDefinition[];
 }
 
 /**
- * Static API configuration — server identity, API path prefix, and all
- * entity set definitions loaded from the co-located JSON file.
+ * Load API configuration from a JSON file.
+ * Relative filenames are resolved against this module's directory (src/config/).
  */
-export const apiConfig: ApiConfig = apiConfigJson as ApiConfig;
+function loadApiConfig(filename: string): ApiConfig {
+  const configDir = dirname(fileURLToPath(import.meta.url));
+  const filePath = isAbsolute(filename) ? filename : join(configDir, filename);
+  return JSON.parse(readFileSync(filePath, 'utf-8')) as ApiConfig;
+}
+
+/**
+ * API configuration — server identity and all API definitions.
+ * Loaded from the file specified by `API_CONFIG_FILE` (default: api-config.json).
+ */
+export const apiConfig: ApiConfig = loadApiConfig(config.apiConfigFile);

@@ -4,545 +4,549 @@
     "version": "1.0.0",
     "description": "MCP server for SAP CPI OData APIs"
   },
-  "api": {
-    "pathPrefix": "/api/v1"
-  },
-  "entitySets": [
+  "apis": [
     {
-      "entitySet": "IntegrationPackages",
-      "description": "SAP CPI integration packages (logical containers that group iFlows, value mappings, and other design-time artifacts)",
-      "category": "integration-content",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Id", "Name", "Vendor", "Mode", "Version"]
-    },
-    {
-      "entitySet": "IntegrationDesigntimeArtifacts",
-      "description": "integration flow (iFlow) design-time definitions — the editable integration logic before deployment",
-      "category": "integration-content",
-      "keys": [
-        { "name": "Id", "type": "string" },
-        { "name": "Version", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Id", "Name", "PackageId", "Version"],
-      "navigationProperties": [
+      "name": "cpi",
+      "destination": "CPI_DESTINATION",
+      "pathPrefix": "/api/v1",
+      "entitySets": [
         {
-          "name": "Resources",
-          "description": "the bundled files (BPMN XML, scripts, schemas, WSDL) inside an iFlow artifact",
-          "isCollection": true
+          "entitySet": "IntegrationPackages",
+          "description": "SAP CPI integration packages (logical containers that group iFlows, value mappings, and other design-time artifacts)",
+          "category": "integration-content",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Id", "Name", "Vendor", "Mode", "Version"]
         },
         {
-          "name": "Configurations",
-          "description": "externalized configuration parameters (endpoint URLs, credentials aliases, custom properties) of an iFlow",
-          "isCollection": true
+          "entitySet": "IntegrationDesigntimeArtifacts",
+          "description": "integration flow (iFlow) design-time definitions — the editable integration logic before deployment",
+          "category": "integration-content",
+          "keys": [
+            { "name": "Id", "type": "string" },
+            { "name": "Version", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Id", "Name", "PackageId", "Version"],
+          "navigationProperties": [
+            {
+              "name": "Resources",
+              "description": "the bundled files (BPMN XML, scripts, schemas, WSDL) inside an iFlow artifact",
+              "isCollection": true
+            },
+            {
+              "name": "Configurations",
+              "description": "externalized configuration parameters (endpoint URLs, credentials aliases, custom properties) of an iFlow",
+              "isCollection": true
+            }
+          ]
+        },
+        {
+          "entitySet": "IntegrationRuntimeArtifacts",
+          "description": "deployed (runtime) integration artifacts — check deployment status, version, and errors for running iFlows",
+          "category": "integration-content",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          },
+          "filterableProperties": ["Id", "Name", "Type", "Status", "Version"]
+        },
+        {
+          "entitySet": "ValueMappingDesigntimeArtifacts",
+          "description": "value mapping design-time artifacts — lookup tables that translate codes/identifiers between sender and receiver systems",
+          "category": "integration-content",
+          "keys": [
+            { "name": "Id", "type": "string" },
+            { "name": "Version", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Id", "Name", "PackageId"],
+          "navigationProperties": [
+            {
+              "name": "ValMapSchema",
+              "description": "the source-to-target mapping schema rows that define how values are translated",
+              "isCollection": true
+            }
+          ]
+        },
+        {
+          "entitySet": "MessageMappingDesigntimeArtifacts",
+          "description": "message mapping design-time artifacts — graphical structure-to-structure transformations between source and target message formats",
+          "category": "integration-content",
+          "keys": [
+            { "name": "Id", "type": "string" },
+            { "name": "Version", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Id", "Name", "PackageId"]
+        },
+        {
+          "entitySet": "ScriptCollectionDesigntimeArtifacts",
+          "description": "script collection design-time artifacts — reusable Groovy or JavaScript libraries shared across multiple iFlows",
+          "category": "integration-content",
+          "keys": [
+            { "name": "Id", "type": "string" },
+            { "name": "Version", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Id", "Name", "PackageId"]
+        },
+        {
+          "entitySet": "CustomTagConfigurations",
+          "description": "custom tag configurations — tenant-level labels used to categorize and filter integration packages",
+          "category": "integration-content",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Id", "TagName"]
+        },
+        {
+          "entitySet": "BuildAndDeployStatus",
+          "description": "build and deploy task status — track whether an iFlow deployment is queued, running, or finished",
+          "category": "integration-content",
+          "keys": [{ "name": "TaskId", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "MessageProcessingLogs",
+          "description": "message processing logs — execution history for integration flows, used to debug failed messages or monitor processing status",
+          "category": "message-processing-logs",
+          "keys": [{ "name": "MessageGuid", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          },
+          "filterableProperties": [
+            "MessageGuid",
+            "CorrelationId",
+            "ApplicationMessageId",
+            "ApplicationMessageType",
+            "IntegrationFlowName",
+            "Status",
+            "LogLevel",
+            "LogStart",
+            "LogEnd",
+            "Sender",
+            "Receiver"
+          ],
+          "navigationProperties": [
+            {
+              "name": "MessageProcessingLogAttachments",
+              "description": "payload and header attachments captured during message processing (useful for inspecting actual message content)",
+              "isCollection": true
+            },
+            {
+              "name": "ErrorInformations",
+              "description": "detailed error information including exception type and stack trace for failed message executions",
+              "isCollection": true
+            },
+            {
+              "name": "AdapterAttributes",
+              "description": "adapter-specific metadata (e.g. HTTP headers, file names, queue names) recorded by the sender/receiver adapter",
+              "isCollection": true
+            },
+            {
+              "name": "CustomHeaderProperties",
+              "description": "custom header properties set during iFlow processing via Content Modifier or Script steps",
+              "isCollection": true
+            },
+            {
+              "name": "MessageStoreEntries",
+              "description": "persisted message store entries linked to this processing log (messages stored via Persist step)",
+              "isCollection": true
+            }
+          ]
+        },
+        {
+          "entitySet": "IdMapFromId2s",
+          "description": "ID mapping entries — used for exactly-once processing to map source IDs to target IDs and prevent duplicate messages",
+          "category": "message-processing-logs",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": false,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "IdempotentRepositoryEntries",
+          "description": "idempotent repository entries — duplicate-check records that ensure a message is processed only once",
+          "category": "message-processing-logs",
+          "keys": [
+            { "name": "Source", "type": "string" },
+            { "name": "Entry", "type": "string" },
+            { "name": "Component", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": false,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "DataStoreEntries",
+          "description": "data store entries — key-value records persisted by iFlows for cross-message data sharing or temporary storage",
+          "category": "message-stores",
+          "keys": [
+            { "name": "Id", "type": "string" },
+            { "name": "DataStoreName", "type": "string" },
+            { "name": "IntegrationFlow", "type": "string" },
+            { "name": "Type", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": true
+          },
+          "filterableProperties": ["DataStoreName", "IntegrationFlow", "Type", "Status"]
+        },
+        {
+          "entitySet": "Variables",
+          "description": "integration flow variables — runtime variables persisted between iFlow executions (e.g. timestamps, counters, delta tokens)",
+          "category": "message-stores",
+          "keys": [
+            { "name": "VariableName", "type": "string" },
+            { "name": "IntegrationFlow", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          },
+          "filterableProperties": ["VariableName", "IntegrationFlow", "Visibility"]
+        },
+        {
+          "entitySet": "NumberRanges",
+          "description": "number range configurations — auto-incrementing counters used to generate unique sequence numbers in iFlows",
+          "category": "message-stores",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "MessageStoreEntries",
+          "description": "message store entries — full messages explicitly persisted via the Persist step for later retrieval or retry",
+          "category": "message-stores",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          },
+          "filterableProperties": ["Id", "MessageGuid", "FlowName", "Status"]
+        },
+        {
+          "entitySet": "JmsBrokers",
+          "description": "JMS broker instances — the messaging broker(s) provisioned on the tenant, including capacity and queue counts",
+          "category": "message-stores",
+          "keys": [{ "name": "Key", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "JmsResources",
+          "description": "JMS queue resources — individual message queues with their current depth, capacity, and consumer status",
+          "category": "message-stores",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": false,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "LogFiles",
+          "description": "system log files — tenant-level runtime logs (HTTP, default trace, audit) for low-level troubleshooting",
+          "category": "log-files",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          },
+          "filterableProperties": ["Name", "Application", "LastModified", "Scope", "NodeScope"]
+        },
+        {
+          "entitySet": "LogFileArchives",
+          "description": "archived log files — compressed historical log bundles available for download",
+          "category": "log-files",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "KeystoreEntries",
+          "description": "keystore entries in the tenant certificate store — SSL/TLS certificates, key pairs, and trusted CA certificates used for secure connections",
+          "category": "security-content",
+          "keys": [{ "name": "Hexalias", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": true
+          },
+          "filterableProperties": ["Hexalias", "Alias", "Type", "Owner"]
+        },
+        {
+          "entitySet": "CertificateResources",
+          "description": "certificate chain resources — the full X.509 certificate chains associated with keystore entries, useful for verifying trust paths",
+          "category": "security-content",
+          "keys": [{ "name": "Hexalias", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "SSHKeyResources",
+          "description": "SSH key resources — public/private key pairs used for SFTP adapter connectivity",
+          "category": "security-content",
+          "keys": [{ "name": "Hexalias", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": false,
+            "update": false,
+            "delete": false
+          }
+        },
+        {
+          "entitySet": "UserCredentials",
+          "description": "user credential artifacts — stored username/password pairs deployed as security material for basic-auth connections",
+          "category": "security-content",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Name", "Kind", "Status"]
+        },
+        {
+          "entitySet": "OAuth2ClientCredentials",
+          "description": "OAuth2 client credential artifacts — client ID/secret pairs and token endpoints for OAuth2 client-credentials-grant connections",
+          "category": "security-content",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Name", "Status"]
+        },
+        {
+          "entitySet": "SecureParameters",
+          "description": "secure parameter artifacts — encrypted key-value entries referenced in iFlow externalized parameters to store sensitive configuration values",
+          "category": "security-content",
+          "keys": [{ "name": "Name", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          }
+        },
+        {
+          "entitySet": "CertificateUserMappings",
+          "description": "certificate-to-user mappings — rules that map inbound client certificates to CPI user roles for certificate-based authentication",
+          "category": "security-content",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          }
+        },
+        {
+          "entitySet": "AccessPolicies",
+          "description": "access policies — fine-grained authorization rules that restrict which user roles can access specific integration artifacts",
+          "category": "security-content",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "navigationProperties": [
+            {
+              "name": "ArtifactReferences",
+              "description": "the specific integration artifacts (iFlows, packages) governed by this access policy",
+              "isCollection": true
+            }
+          ]
+        },
+        {
+          "entitySet": "Partners",
+          "description": "partner directory entries — trading partners (e.g. customers, suppliers) whose connection details and parameters drive dynamic iFlow routing",
+          "category": "partner-directory",
+          "keys": [{ "name": "Pid", "type": "string" }],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          }
+        },
+        {
+          "entitySet": "StringParameters",
+          "description": "partner-specific string parameters — text configuration values (e.g. endpoint URLs, format codes) keyed by partner ID and parameter ID",
+          "category": "partner-directory",
+          "keys": [
+            { "name": "Pid", "type": "string" },
+            { "name": "Id", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Pid", "Id"]
+        },
+        {
+          "entitySet": "BinaryParameters",
+          "description": "partner-specific binary parameters — file-based configuration (e.g. XSLT stylesheets, certificates, mapping files) keyed by partner ID and parameter ID",
+          "category": "partner-directory",
+          "keys": [
+            { "name": "Pid", "type": "string" },
+            { "name": "Id", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Pid", "Id"]
+        },
+        {
+          "entitySet": "AlternativePartners",
+          "description": "alternative partner entries — additional identifiers (agency/scheme pairs like DUNS, GLN) that map to a primary partner ID for flexible partner lookup",
+          "category": "partner-directory",
+          "keys": [
+            { "name": "Pid", "type": "string" },
+            { "name": "Id", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Pid", "Agency", "Scheme"]
+        },
+        {
+          "entitySet": "AuthorizedUsers",
+          "description": "authorized user entries — users permitted to send messages on behalf of a specific partner, used for sender-side authorization checks",
+          "category": "partner-directory",
+          "keys": [
+            { "name": "Pid", "type": "string" },
+            { "name": "Id", "type": "string" }
+          ],
+          "operations": {
+            "list": true,
+            "get": true,
+            "create": true,
+            "update": true,
+            "delete": true
+          },
+          "filterableProperties": ["Pid", "User"]
         }
       ]
-    },
-    {
-      "entitySet": "IntegrationRuntimeArtifacts",
-      "description": "deployed (runtime) integration artifacts — check deployment status, version, and errors for running iFlows",
-      "category": "integration-content",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      },
-      "filterableProperties": ["Id", "Name", "Type", "Status", "Version"]
-    },
-    {
-      "entitySet": "ValueMappingDesigntimeArtifacts",
-      "description": "value mapping design-time artifacts — lookup tables that translate codes/identifiers between sender and receiver systems",
-      "category": "integration-content",
-      "keys": [
-        { "name": "Id", "type": "string" },
-        { "name": "Version", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Id", "Name", "PackageId"],
-      "navigationProperties": [
-        {
-          "name": "ValMapSchema",
-          "description": "the source-to-target mapping schema rows that define how values are translated",
-          "isCollection": true
-        }
-      ]
-    },
-    {
-      "entitySet": "MessageMappingDesigntimeArtifacts",
-      "description": "message mapping design-time artifacts — graphical structure-to-structure transformations between source and target message formats",
-      "category": "integration-content",
-      "keys": [
-        { "name": "Id", "type": "string" },
-        { "name": "Version", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Id", "Name", "PackageId"]
-    },
-    {
-      "entitySet": "ScriptCollectionDesigntimeArtifacts",
-      "description": "script collection design-time artifacts — reusable Groovy or JavaScript libraries shared across multiple iFlows",
-      "category": "integration-content",
-      "keys": [
-        { "name": "Id", "type": "string" },
-        { "name": "Version", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Id", "Name", "PackageId"]
-    },
-    {
-      "entitySet": "CustomTagConfigurations",
-      "description": "custom tag configurations — tenant-level labels used to categorize and filter integration packages",
-      "category": "integration-content",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Id", "TagName"]
-    },
-    {
-      "entitySet": "BuildAndDeployStatus",
-      "description": "build and deploy task status — track whether an iFlow deployment is queued, running, or finished",
-      "category": "integration-content",
-      "keys": [{ "name": "TaskId", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "MessageProcessingLogs",
-      "description": "message processing logs — execution history for integration flows, used to debug failed messages or monitor processing status",
-      "category": "message-processing-logs",
-      "keys": [{ "name": "MessageGuid", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      },
-      "filterableProperties": [
-        "MessageGuid",
-        "CorrelationId",
-        "ApplicationMessageId",
-        "ApplicationMessageType",
-        "IntegrationFlowName",
-        "Status",
-        "LogLevel",
-        "LogStart",
-        "LogEnd",
-        "Sender",
-        "Receiver"
-      ],
-      "navigationProperties": [
-        {
-          "name": "MessageProcessingLogAttachments",
-          "description": "payload and header attachments captured during message processing (useful for inspecting actual message content)",
-          "isCollection": true
-        },
-        {
-          "name": "ErrorInformations",
-          "description": "detailed error information including exception type and stack trace for failed message executions",
-          "isCollection": true
-        },
-        {
-          "name": "AdapterAttributes",
-          "description": "adapter-specific metadata (e.g. HTTP headers, file names, queue names) recorded by the sender/receiver adapter",
-          "isCollection": true
-        },
-        {
-          "name": "CustomHeaderProperties",
-          "description": "custom header properties set during iFlow processing via Content Modifier or Script steps",
-          "isCollection": true
-        },
-        {
-          "name": "MessageStoreEntries",
-          "description": "persisted message store entries linked to this processing log (messages stored via Persist step)",
-          "isCollection": true
-        }
-      ]
-    },
-    {
-      "entitySet": "IdMapFromId2s",
-      "description": "ID mapping entries — used for exactly-once processing to map source IDs to target IDs and prevent duplicate messages",
-      "category": "message-processing-logs",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": false,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "IdempotentRepositoryEntries",
-      "description": "idempotent repository entries — duplicate-check records that ensure a message is processed only once",
-      "category": "message-processing-logs",
-      "keys": [
-        { "name": "Source", "type": "string" },
-        { "name": "Entry", "type": "string" },
-        { "name": "Component", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": false,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "DataStoreEntries",
-      "description": "data store entries — key-value records persisted by iFlows for cross-message data sharing or temporary storage",
-      "category": "message-stores",
-      "keys": [
-        { "name": "Id", "type": "string" },
-        { "name": "DataStoreName", "type": "string" },
-        { "name": "IntegrationFlow", "type": "string" },
-        { "name": "Type", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": true
-      },
-      "filterableProperties": ["DataStoreName", "IntegrationFlow", "Type", "Status"]
-    },
-    {
-      "entitySet": "Variables",
-      "description": "integration flow variables — runtime variables persisted between iFlow executions (e.g. timestamps, counters, delta tokens)",
-      "category": "message-stores",
-      "keys": [
-        { "name": "VariableName", "type": "string" },
-        { "name": "IntegrationFlow", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      },
-      "filterableProperties": ["VariableName", "IntegrationFlow", "Visibility"]
-    },
-    {
-      "entitySet": "NumberRanges",
-      "description": "number range configurations — auto-incrementing counters used to generate unique sequence numbers in iFlows",
-      "category": "message-stores",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "MessageStoreEntries",
-      "description": "message store entries — full messages explicitly persisted via the Persist step for later retrieval or retry",
-      "category": "message-stores",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      },
-      "filterableProperties": ["Id", "MessageGuid", "FlowName", "Status"]
-    },
-    {
-      "entitySet": "JmsBrokers",
-      "description": "JMS broker instances — the messaging broker(s) provisioned on the tenant, including capacity and queue counts",
-      "category": "message-stores",
-      "keys": [{ "name": "Key", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "JmsResources",
-      "description": "JMS queue resources — individual message queues with their current depth, capacity, and consumer status",
-      "category": "message-stores",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": false,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "LogFiles",
-      "description": "system log files — tenant-level runtime logs (HTTP, default trace, audit) for low-level troubleshooting",
-      "category": "log-files",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      },
-      "filterableProperties": ["Name", "Application", "LastModified", "Scope", "NodeScope"]
-    },
-    {
-      "entitySet": "LogFileArchives",
-      "description": "archived log files — compressed historical log bundles available for download",
-      "category": "log-files",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "KeystoreEntries",
-      "description": "keystore entries in the tenant certificate store — SSL/TLS certificates, key pairs, and trusted CA certificates used for secure connections",
-      "category": "security-content",
-      "keys": [{ "name": "Hexalias", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": true
-      },
-      "filterableProperties": ["Hexalias", "Alias", "Type", "Owner"]
-    },
-    {
-      "entitySet": "CertificateResources",
-      "description": "certificate chain resources — the full X.509 certificate chains associated with keystore entries, useful for verifying trust paths",
-      "category": "security-content",
-      "keys": [{ "name": "Hexalias", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "SSHKeyResources",
-      "description": "SSH key resources — public/private key pairs used for SFTP adapter connectivity",
-      "category": "security-content",
-      "keys": [{ "name": "Hexalias", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": false,
-        "update": false,
-        "delete": false
-      }
-    },
-    {
-      "entitySet": "UserCredentials",
-      "description": "user credential artifacts — stored username/password pairs deployed as security material for basic-auth connections",
-      "category": "security-content",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Name", "Kind", "Status"]
-    },
-    {
-      "entitySet": "OAuth2ClientCredentials",
-      "description": "OAuth2 client credential artifacts — client ID/secret pairs and token endpoints for OAuth2 client-credentials-grant connections",
-      "category": "security-content",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Name", "Status"]
-    },
-    {
-      "entitySet": "SecureParameters",
-      "description": "secure parameter artifacts — encrypted key-value entries referenced in iFlow externalized parameters to store sensitive configuration values",
-      "category": "security-content",
-      "keys": [{ "name": "Name", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      }
-    },
-    {
-      "entitySet": "CertificateUserMappings",
-      "description": "certificate-to-user mappings — rules that map inbound client certificates to CPI user roles for certificate-based authentication",
-      "category": "security-content",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      }
-    },
-    {
-      "entitySet": "AccessPolicies",
-      "description": "access policies — fine-grained authorization rules that restrict which user roles can access specific integration artifacts",
-      "category": "security-content",
-      "keys": [{ "name": "Id", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "navigationProperties": [
-        {
-          "name": "ArtifactReferences",
-          "description": "the specific integration artifacts (iFlows, packages) governed by this access policy",
-          "isCollection": true
-        }
-      ]
-    },
-    {
-      "entitySet": "Partners",
-      "description": "partner directory entries — trading partners (e.g. customers, suppliers) whose connection details and parameters drive dynamic iFlow routing",
-      "category": "partner-directory",
-      "keys": [{ "name": "Pid", "type": "string" }],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      }
-    },
-    {
-      "entitySet": "StringParameters",
-      "description": "partner-specific string parameters — text configuration values (e.g. endpoint URLs, format codes) keyed by partner ID and parameter ID",
-      "category": "partner-directory",
-      "keys": [
-        { "name": "Pid", "type": "string" },
-        { "name": "Id", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Pid", "Id"]
-    },
-    {
-      "entitySet": "BinaryParameters",
-      "description": "partner-specific binary parameters — file-based configuration (e.g. XSLT stylesheets, certificates, mapping files) keyed by partner ID and parameter ID",
-      "category": "partner-directory",
-      "keys": [
-        { "name": "Pid", "type": "string" },
-        { "name": "Id", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Pid", "Id"]
-    },
-    {
-      "entitySet": "AlternativePartners",
-      "description": "alternative partner entries — additional identifiers (agency/scheme pairs like DUNS, GLN) that map to a primary partner ID for flexible partner lookup",
-      "category": "partner-directory",
-      "keys": [
-        { "name": "Pid", "type": "string" },
-        { "name": "Id", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Pid", "Agency", "Scheme"]
-    },
-    {
-      "entitySet": "AuthorizedUsers",
-      "description": "authorized user entries — users permitted to send messages on behalf of a specific partner, used for sender-side authorization checks",
-      "category": "partner-directory",
-      "keys": [
-        { "name": "Pid", "type": "string" },
-        { "name": "Id", "type": "string" }
-      ],
-      "operations": {
-        "list": true,
-        "get": true,
-        "create": true,
-        "update": true,
-        "delete": true
-      },
-      "filterableProperties": ["Pid", "User"]
     }
   ]
 }

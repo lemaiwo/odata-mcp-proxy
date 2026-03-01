@@ -38,8 +38,10 @@ export interface EntityOperations {
  * Defines an OData entity set to be registered as MCP tools.
  */
 export interface EntitySetDefinition {
-  /** OData entity set name (e.g. "IntegrationPackages") */
+  /** OData entity set name (e.g. "IntegrationPackages") — also used as tool name prefix */
   entitySet: string;
+  /** URL path segment override (defaults to entitySet when omitted) */
+  urlPath?: string;
   /** Human-readable description for LLM */
   description: string;
   /** API category for filtering */
@@ -155,6 +157,7 @@ export function registerEntityTools(
   definition: EntitySetDefinition,
 ): void {
   const { entitySet, description, keys, operations, navigationProperties } = definition;
+  const urlPath = definition.urlPath ?? entitySet;
   const keyHint = formatKeyHint(keys);
 
   if (operations.list) {
@@ -162,7 +165,7 @@ export function registerEntityTools(
       `${entitySet}_list`,
       `List ${description}. Returns a collection of entities with optional OData query options (GET).${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'GET', entitySet, undefined, args, extra.authInfo?.token),
+      async (args, extra) => handleToolCall(client, 'GET', urlPath, undefined, args, extra.authInfo?.token),
     );
   }
 
@@ -171,7 +174,7 @@ export function registerEntityTools(
       `${entitySet}_get`,
       `Get a single ${description} by its key(s) (GET).${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'GET', entitySet, undefined, args, extra.authInfo?.token),
+      async (args, extra) => handleToolCall(client, 'GET', urlPath, undefined, args, extra.authInfo?.token),
     );
   }
 
@@ -180,7 +183,7 @@ export function registerEntityTools(
       `${entitySet}_create`,
       `Create a new ${description} (POST). Provide entity properties in the body.`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'POST', entitySet, undefined, args, extra.authInfo?.token),
+      async (args, extra) => handleToolCall(client, 'POST', urlPath, undefined, args, extra.authInfo?.token),
     );
   }
 
@@ -189,7 +192,7 @@ export function registerEntityTools(
       `${entitySet}_update`,
       `Update an existing ${description} (PATCH). Provide key(s) in path and properties in body.${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'PATCH', entitySet, undefined, args, extra.authInfo?.token),
+      async (args, extra) => handleToolCall(client, 'PATCH', urlPath, undefined, args, extra.authInfo?.token),
     );
   }
 
@@ -198,7 +201,7 @@ export function registerEntityTools(
       `${entitySet}_delete`,
       `Delete a ${description} by its key(s) (DELETE).${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'DELETE', entitySet, undefined, args, extra.authInfo?.token),
+      async (args, extra) => handleToolCall(client, 'DELETE', urlPath, undefined, args, extra.authInfo?.token),
     );
   }
 
@@ -210,7 +213,7 @@ export function registerEntityTools(
         `Get ${nav.description} for a specific ${description} (GET). ` +
           `Provide the parent entity key(s) in path, then /${nav.name} is appended automatically.${keyHint}`,
         genericToolSchema,
-        async (args, extra) => handleToolCall(client, 'GET', entitySet, nav.name, args, extra.authInfo?.token),
+        async (args, extra) => handleToolCall(client, 'GET', urlPath, nav.name, args, extra.authInfo?.token),
       );
     }
   }

@@ -22,7 +22,10 @@
       "Bash(npm run:*)",
       "Bash(find:*)",
       "Bash(git:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebFetch(domain:cap.cloud.sap)",
+      "WebFetch(domain:api.hana.ondemand.com)",
+      "WebFetch(domain:accounts-service.cfapps.eu10.hana.ondemand.com)"
     ]
   }
 }

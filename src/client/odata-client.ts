@@ -16,6 +16,7 @@ export class ODataClient {
     private readonly getDestination: (jwt?: string) => Promise<HttpDestinationOrFetchOptions>,
     private readonly pathPrefix: string = '/api/v1',
     private readonly timeout: number = 60000,
+    private readonly csrfProtected: boolean = true,
   ) {}
 
   /**
@@ -180,7 +181,7 @@ export class ODataClient {
         data,
         headers,
         signal: AbortSignal.timeout(this.timeout),
-      });
+      }, this.csrfProtected ? undefined : { fetchCsrfToken: false });
 
       // Some operations (DELETE, PATCH) return 204 No Content
       if (response.status === 204) {

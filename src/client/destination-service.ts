@@ -20,6 +20,21 @@ import { logger } from '../utils/logger.js';
 // -----------------------------------------------------------------------------
 
 /**
+ * Derive the environment variable prefix for a destination name.
+ *
+ * The destination name is uppercased and any non-alphanumeric characters are
+ * replaced with underscores.
+ *
+ * Examples:
+ *   "CPI_DESTINATION"     -> "CPI_DESTINATION"
+ *   "my-cpi-tenant"       -> "MY_CPI_TENANT"
+ *   "S4H Integration"     -> "S4H_INTEGRATION"
+ */
+function getEnvVarPrefix(destinationName: string): string {
+  return destinationName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+}
+
+/**
  * Construct an HttpDestination from local environment variables when running
  * outside of BTP (i.e. no VCAP_SERVICES).
  *
@@ -27,44 +42,50 @@ import { logger } from '../utils/logger.js';
  * fetch, caching, and refresh automatically when `authentication`,
  * `tokenServiceUrl`, `clientId`, and `clientSecret` are set on the destination.
  *
- * Required environment variables:
- *  - SAP_CPI_BASE_URL     - Base URL of the Cloud Integration tenant
- *  - SAP_CPI_TOKEN_URL    - OAuth2 token endpoint URL
- *  - SAP_CPI_CLIENT_ID    - OAuth2 client ID
- *  - SAP_CPI_CLIENT_SECRET - OAuth2 client secret
+ * Required environment variables (where PREFIX is the destination name
+ * uppercased with non-alphanumeric characters replaced by underscores):
+ *  - {PREFIX}_BASE_URL      - Base URL of the target system
+ *  - {PREFIX}_TOKEN_URL     - OAuth2 token endpoint URL
+ *  - {PREFIX}_CLIENT_ID     - OAuth2 client ID
+ *  - {PREFIX}_CLIENT_SECRET - OAuth2 client secret
+ *
+ * Example: destination "CPI_DESTINATION" → CPI_DESTINATION_BASE_URL, etc.
  */
 function resolveLocal(destinationName: string): HttpDestination {
+  const prefix = getEnvVarPrefix(destinationName);
+
   logger.info('VCAP_SERVICES not found; using local environment variable fallback', {
     destinationName,
+    envVarPrefix: prefix,
   });
 
-  const baseUrl = process.env.SAP_CPI_BASE_URL;
-  const tokenUrl = process.env.SAP_CPI_TOKEN_URL;
-  const clientId = process.env.SAP_CPI_CLIENT_ID;
-  const clientSecret = process.env.SAP_CPI_CLIENT_SECRET;
+  const baseUrl = process.env[`${prefix}_BASE_URL`];
+  const tokenUrl = process.env[`${prefix}_TOKEN_URL`];
+  const clientId = process.env[`${prefix}_CLIENT_ID`];
+  const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
 
   if (!baseUrl) {
     throw new Error(
-      'Local fallback: SAP_CPI_BASE_URL environment variable is not set. ' +
-      'Provide the base URL of your Cloud Integration tenant (e.g. https://tenant.it-cpi018.cfapps.eu10.hana.ondemand.com).',
+      `Local fallback: ${prefix}_BASE_URL environment variable is not set. ` +
+      'Provide the base URL of the target system (e.g. https://tenant.it-cpi018.cfapps.eu10.hana.ondemand.com).',
     );
   }
   if (!tokenUrl) {
     throw new Error(
-      'Local fallback: SAP_CPI_TOKEN_URL environment variable is not set. ' +
+      `Local fallback: ${prefix}_TOKEN_URL environment variable is not set. ` +
       'Provide the OAuth2 token endpoint URL (e.g. https://<subdomain>.authentication.eu10.hana.ondemand.com/oauth/token).',
     );
   }
   if (!clientId) {
     throw new Error(
-      'Local fallback: SAP_CPI_CLIENT_ID environment variable is not set. ' +
-      'Provide the OAuth2 client ID for your Cloud Integration service key.',
+      `Local fallback: ${prefix}_CLIENT_ID environment variable is not set. ` +
+      'Provide the OAuth2 client ID for your service key.',
     );
   }
   if (!clientSecret) {
     throw new Error(
-      'Local fallback: SAP_CPI_CLIENT_SECRET environment variable is not set. ' +
-      'Provide the OAuth2 client secret for your Cloud Integration service key.',
+      `Local fallback: ${prefix}_CLIENT_SECRET environment variable is not set. ` +
+      'Provide the OAuth2 client secret for your service key.',
     );
   }
 

@@ -24,39 +24,47 @@ logger.info(`Starting ${apiConfig.server.name}`, {
   enabledCategories: config.enabledApiCategories,
 });
 
-// ── 2. Create OData client ──────────────────────────────────────────────────
-//
-// The destination is resolved lazily on the first request. The SDK caches
-// destinations and tokens internally, so subsequent calls are fast.
-
-const getDestination = (jwt?: string) => resolveDestination(config.sapDestinationName, jwt);
-
-const odataClient = new ODataClient(
-  getDestination,
-  apiConfig.api.pathPrefix,
-  config.requestTimeout,
-);
-
-logger.info('OData client created', {
-  destinationName: config.sapDestinationName,
-  timeout: config.requestTimeout,
-});
-
-// ── 3. Create MCP server and register tools ─────────────────────────────────
+// ── 2. Create MCP server ─────────────────────────────────────────────────────
 
 const mcpServer = createMcpServer(apiConfig.server.name, apiConfig.server.version);
 
-registerAllTools(
-  mcpServer,
-  odataClient,
-  apiConfig.entitySets,
-  config.enabledApiCategories,
-);
+// ── 3. Create one OData client per API and register its tools ────────────────
+//
+// Destinations are resolved lazily on the first request. The SDK caches
+// destinations and tokens internally, so subsequent calls are fast.
 
-registerApiDocResources(mcpServer, apiConfig.entitySets, apiConfig.server.name);
+for (const apiDef of apiConfig.apis) {
+  const getDestination = (jwt?: string) => resolveDestination(apiDef.destination, jwt);
+
+  const odataClient = new ODataClient(
+    getDestination,
+    apiDef.pathPrefix,
+    config.requestTimeout,
+    apiDef.csrfProtected ?? true,
+  );
+
+  logger.info('OData client created', {
+    apiName: apiDef.name,
+    destination: apiDef.destination,
+    pathPrefix: apiDef.pathPrefix,
+    timeout: config.requestTimeout,
+  });
+
+  registerAllTools(
+    mcpServer,
+    odataClient,
+    apiDef.entitySets,
+    config.enabledApiCategories,
+  );
+}
+
+// Register API documentation resources across all APIs
+const allEntitySets = apiConfig.apis.flatMap((api) => api.entitySets);
+registerApiDocResources(mcpServer, allEntitySets, apiConfig.server.name);
 
 logger.info('MCP server ready', {
-  totalDefinitions: apiConfig.entitySets.length,
+  apis: apiConfig.apis.map((a) => a.name),
+  totalDefinitions: allEntitySets.length,
   enabledCategories: config.enabledApiCategories,
 });
 
