@@ -1,6 +1,15 @@
 {
-  "xsappname": "cpi-admin-mcp-server",
+  "xsappname": "admin-mcp-server",
   "tenant-mode": "dedicated",
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "http://localhost:4004/oauth/callback",
+      "http://localhost:4004/**",
+      "https://*.cfapps.eu10.hana.ondemand.com/**",
+      "https://*.cfapps.eu10-004.hana.ondemand.com/**",
+      "https://*.cfapps.eu20.hana.ondemand.com/**"
+    ]
+  },
   "scopes": [
     {
       "name": "$XSAPPNAME.read",

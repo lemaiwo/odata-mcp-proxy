@@ -13,6 +13,7 @@ import { ODataClient } from './client/odata-client.js';
 import { createMcpServer } from './server/mcp-server.js';
 import { registerAllTools } from './tools/registry.js';
 import { registerApiDocResources } from './resources/index.js';
+import { XsuaaAuth } from './auth/xsuaa-auth.js';
 
 // ── 1. Initialize logger with configured level ─────────────────────────────
 
@@ -96,7 +97,8 @@ if (config.mcpTransport === 'http') {
     './server/http.js'
   );
 
-  const app = createHttpServer(config.port);
+  const auth = new XsuaaAuth();
+  const app = createHttpServer(config.port, auth);
 
   // Map of active sessions (sessionId -> transport + server) for stateful mode.
   type Session = {

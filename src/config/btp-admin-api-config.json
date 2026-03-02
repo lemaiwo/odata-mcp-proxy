@@ -36,6 +36,54 @@
           "operations": { "list": true, "get": true, "create": true, "update": true, "delete": true }
         }
       ]
+    },
+    {
+      "name": "cis-entitlements",
+      "destination": "BTP_ENTITLEMENTS_SERVICE",
+      "pathPrefix": "/entitlements/v1",
+      "csrfProtected": false,
+      "entitySets": [
+        {
+          "entitySet": "Assignments",
+          "urlPath": "assignments",
+          "description": "service plan entitlement assignments for subaccounts and directories",
+          "category": "entitlements",
+          "keys": [],
+          "operations": { "list": true, "get": false, "create": false, "update": true, "delete": false }
+        },
+        {
+          "entitySet": "AllowedDataCenters",
+          "urlPath": "globalAccountAllowedDataCenters",
+          "description": "data centers available for the global account",
+          "category": "entitlements",
+          "keys": [],
+          "operations": { "list": true, "get": false, "create": false, "update": false, "delete": false }
+        }
+      ]
+    },
+    {
+      "name": "cis-provisioning",
+      "destination": "BTP_PROVISIONING_SERVICE",
+      "pathPrefix": "/provisioning/v1",
+      "csrfProtected": false,
+      "entitySets": [
+        {
+          "entitySet": "EnvironmentInstances",
+          "urlPath": "environmentInstances",
+          "description": "runtime environment instances (e.g. Cloud Foundry orgs) in a subaccount",
+          "category": "entitlements",
+          "keys": [{ "name": "environmentInstanceID", "type": "string" }],
+          "operations": { "list": true, "get": true, "create": true, "update": false, "delete": true }
+        },
+        {
+          "entitySet": "AvailableEnvironments",
+          "urlPath": "availableEnvironments",
+          "description": "runtime environment types available for provisioning",
+          "category": "entitlements",
+          "keys": [],
+          "operations": { "list": true, "get": false, "create": false, "update": false, "delete": false }
+        }
+      ]
     }
   ]
 }

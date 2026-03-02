@@ -5,5 +5,13 @@ declare module '@sap/xsenv' {
    */
   function loadEnv(path?: string): void;
 
-  export default { loadEnv };
+  /**
+   * Looks up bound services by label, tag, or name and returns the credentials.
+   * @param query - Map of result key to service selector ({ label?, tag?, name? })
+   */
+  function getServices(
+    query: Record<string, { label?: string; tag?: string; name?: string }>,
+  ): Record<string, Record<string, unknown>>;
+
+  export default { loadEnv, getServices };
 }
