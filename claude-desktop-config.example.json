@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "cpi-admin": {
+    "odata-mcp-proxy": {
       "command": "node",
       "args": ["dist/index.js"],
       "env": {

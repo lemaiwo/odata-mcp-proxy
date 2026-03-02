@@ -4,7 +4,7 @@
       {
         "label": "destination",
         "plan": "lite",
-        "name": "cpi-mcp-destination",
+        "name": "odata-mcp-proxy-destination",
         "credentials": {
           "clientid": "your-destination-client-id",
           "clientsecret": "your-destination-client-secret",
@@ -17,7 +17,7 @@
       {
         "label": "connectivity",
         "plan": "lite",
-        "name": "cpi-mcp-connectivity",
+        "name": "odata-mcp-proxy-connectivity",
         "credentials": {
           "clientid": "your-connectivity-client-id",
           "clientsecret": "your-connectivity-client-secret",
@@ -30,12 +30,12 @@
       {
         "label": "xsuaa",
         "plan": "application",
-        "name": "cpi-mcp-xsuaa",
+        "name": "odata-mcp-proxy-xsuaa",
         "credentials": {
           "clientid": "your-xsuaa-client-id",
           "clientsecret": "your-xsuaa-client-secret",
           "url": "https://your-subdomain.authentication.eu10.hana.ondemand.com",
-          "xsappname": "cpi-admin-mcp-server"
+          "xsappname": "odata-mcp-proxy"
         }
       }
     ]

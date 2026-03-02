@@ -314,7 +314,7 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         token_endpoint_auth_method: 'client_secret_basic',
-        client_name: 'CPI MCP Server',
+        client_name: 'OData MCP Proxy',
         registration_client_uri: `${baseUrl}/oauth/client-registration`,
         'x-xsuaa-metadata': {
           url: creds.url,

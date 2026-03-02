@@ -1,6 +1,6 @@
-# Running the CPI Admin MCP Server Locally
+# Running the OData MCP Proxy Locally
 
-This guide covers how to set up and run the CPI Admin MCP Server on your local
+This guide covers how to set up and run the OData MCP Proxy on your local
 machine for development and testing.
 
 ## Prerequisites
@@ -15,7 +15,7 @@ machine for development and testing.
 
 ```bash
 git clone <repository-url>
-cd cpi-mcp-server
+cd odata-mcp-proxy
 npm install
 ```
 

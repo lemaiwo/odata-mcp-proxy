@@ -1,6 +1,6 @@
-# Deploying CPI Admin MCP Server to SAP BTP Cloud Foundry
+# Deploying OData MCP Proxy to SAP BTP Cloud Foundry
 
-Step-by-step guide for building and deploying the CPI Admin MCP Server as a Cloud Foundry application on SAP BTP.
+Step-by-step guide for building and deploying the OData MCP Proxy as a Cloud Foundry application on SAP BTP.
 
 ## 1. Prerequisites
 
@@ -67,8 +67,8 @@ The application requires the `SAP_DESTINATION_NAME` environment variable to be s
 **Option A -- Set via `cf set-env` after deployment:**
 
 ```bash
-cf set-env cpi-admin-mcp-server SAP_DESTINATION_NAME "CPI_Tenant"
-cf restage cpi-admin-mcp-server
+cf set-env odata-mcp-proxy SAP_DESTINATION_NAME "CPI_Tenant"
+cf restage odata-mcp-proxy
 ```
 
 **Option B -- Add to `mta.yaml` properties (before building):**
@@ -77,7 +77,7 @@ In `mta.yaml`, add a `properties` block under the module:
 
 ```yaml
 modules:
-  - name: cpi-admin-mcp-server
+  - name: odata-mcp-proxy
     # ... existing config ...
     properties:
       SAP_DESTINATION_NAME: CPI_Tenant
@@ -123,9 +123,9 @@ The MTA deployment will automatically create or update the following service ins
 
 | Resource Name            | Service        | Plan          |
 | ------------------------ | -------------- | ------------- |
-| `cpi-mcp-destination`   | destination    | lite          |
-| `cpi-mcp-connectivity`  | connectivity   | lite          |
-| `cpi-mcp-xsuaa`         | xsuaa          | application   |
+| `odata-mcp-proxy-destination`   | destination    | lite          |
+| `odata-mcp-proxy-connectivity`  | connectivity   | lite          |
+| `odata-mcp-proxy-xsuaa`         | xsuaa          | application   |
 
 ## 6. Post-Deployment
 
@@ -143,17 +143,17 @@ To assign roles:
 
 1. In the **SAP BTP cockpit**, go to **Security > Role Collections**.
 2. Create a role collection (or use an existing one).
-3. Add the appropriate role template(s) from the `cpi-admin-mcp-server` application.
+3. Add the appropriate role template(s) from the `odata-mcp-proxy` application.
 4. Assign the role collection to the relevant users or user groups.
 
 ### Verify the deployment
 
 ```bash
 # Check application status
-cf app cpi-admin-mcp-server
+cf app odata-mcp-proxy
 
 # View recent logs
-cf logs cpi-admin-mcp-server --recent
+cf logs odata-mcp-proxy --recent
 ```
 
 The output of `cf app` will show the application route (URL), status, and instances. Confirm the health check passes and the state shows `running`.
@@ -167,7 +167,7 @@ curl https://<app-route>/health
 ### View live logs (optional)
 
 ```bash
-cf logs cpi-admin-mcp-server
+cf logs odata-mcp-proxy
 ```
 
 ## 7. Connecting MCP Clients
@@ -178,7 +178,7 @@ Once deployed, the server exposes the Model Context Protocol over HTTP at:
 https://<app-route>/mcp
 ```
 
-Where `<app-route>` is the URL shown in the `cf app cpi-admin-mcp-server` output (under `routes`).
+Where `<app-route>` is the URL shown in the `cf app odata-mcp-proxy` output (under `routes`).
 
 Configure your MCP client to connect to this URL. If XSUAA authentication is enforced, the client must obtain a valid OAuth2 token (using the XSUAA service credentials) and pass it as a `Bearer` token in the `Authorization` header.
 
@@ -186,9 +186,9 @@ Configure your MCP client to connect to this URL. If XSUAA authentication is enf
 
 | Symptom                            | Likely Cause                                                        | Fix                                                                                     |
 | ---------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| App crashes on startup              | `SAP_DESTINATION_NAME` not set                                     | Set the env variable and restage (`cf restage cpi-admin-mcp-server`)                    |
+| App crashes on startup              | `SAP_DESTINATION_NAME` not set                                     | Set the env variable and restage (`cf restage odata-mcp-proxy`)                    |
 | `401 Unauthorized` from CPI APIs   | Missing roles on the Process Integration Runtime service key       | Recreate the service key with the required roles (see Section 2)                        |
-| Destination not found               | Destination name mismatch or missing destination service binding   | Verify the destination name matches `SAP_DESTINATION_NAME` and the app is bound to `cpi-mcp-destination` |
+| Destination not found               | Destination name mismatch or missing destination service binding   | Verify the destination name matches `SAP_DESTINATION_NAME` and the app is bound to `odata-mcp-proxy-destination` |
 | Health check fails                  | App not listening on the assigned `PORT`                           | Ensure you are not overriding `PORT`; the platform assigns it automatically             |
 | `mbt build` fails                   | MBT not installed                                                  | Run `npm install -g mbt`                                                                |
 | `cf deploy` fails                   | Not logged in or wrong target                                      | Run `cf login` and `cf target -o <org> -s <space>`                                      |

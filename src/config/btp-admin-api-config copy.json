@@ -1,6 +1,6 @@
 {
   "server": {
-    "name": "btp-admin-mcp-server",
+    "name": "odata-mcp-proxy",
     "version": "1.0.0",
     "description": "MCP server for SAP BTP Core Services administration REST APIs"
   },

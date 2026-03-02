@@ -1,13 +1,13 @@
 _schema-version: "3.1"
-ID: admin-mcp-server
+ID: odata-mcp-proxy
 version: 1.0.0
-description: MCP server for SAP BTP Integration Suite administration
+description: Config-driven MCP proxy that exposes OData and REST APIs as MCP tools
 
 parameters:
   enable-parallel-deployments: true
 
 modules:
-  - name: admin-mcp-server
+  - name: odata-mcp-proxy
     type: nodejs
     path: .
     parameters:
@@ -30,24 +30,24 @@ modules:
         - docs/
         - .taskmaster/
     requires:
-      - name: admin-mcp-destination
-      - name: admin-mcp-connectivity
-      - name: admin-mcp-xsuaa
+      - name: odata-mcp-proxy-destination
+      - name: odata-mcp-proxy-connectivity
+      - name: odata-mcp-proxy-xsuaa
 
 resources:
-  - name: admin-mcp-destination
+  - name: odata-mcp-proxy-destination
     type: org.cloudfoundry.managed-service
     parameters:
       service: destination
       service-plan: lite
 
-  - name: admin-mcp-connectivity
+  - name: odata-mcp-proxy-connectivity
     type: org.cloudfoundry.managed-service
     parameters:
       service: connectivity
       service-plan: lite
 
-  - name: admin-mcp-xsuaa
+  - name: odata-mcp-proxy-xsuaa
     type: org.cloudfoundry.managed-service
     parameters:
       service: xsuaa

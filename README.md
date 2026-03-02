@@ -1,8 +1,8 @@
-# CPI Admin MCP Server
+# OData MCP Proxy
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that exposes SAP Cloud Integration (CPI) OData V2 administration APIs as MCP tools. This enables AI assistants such as Claude to query, manage, and monitor your SAP Integration Suite tenant through natural language.
+A config-driven [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that exposes OData and REST APIs as MCP tools. This enables AI assistants such as Claude to query, manage, and monitor SAP backends through natural language.
 
-The server runs on SAP BTP Cloud Foundry and uses BTP Destinations for secure, token-managed connectivity to the Cloud Integration OData APIs.
+The server runs on SAP BTP Cloud Foundry and uses BTP Destinations for secure, token-managed connectivity to OData APIs.
 
 ---
 
@@ -25,7 +25,7 @@ Claude / AI Assistant
         |
         | MCP Protocol (stdio or HTTP)
         v
- CPI Admin MCP Server
+ OData MCP Proxy
         |
         | OData V2 + JSON
         v
@@ -60,7 +60,7 @@ The server resolves a BTP Destination at startup to obtain the Cloud Integration
 
 ```bash
 git clone <repository-url>
-cd cpi-mcp-server
+cd odata-mcp-proxy
 npm install
 ```
 
@@ -99,10 +99,10 @@ Add the server to your Claude Desktop MCP configuration (`claude_desktop_config.
 ```json
 {
   "mcpServers": {
-    "cpi-admin": {
+    "odata-mcp-proxy": {
       "command": "node",
       "args": ["dist/index.js"],
-      "cwd": "/path/to/cpi-mcp-server",
+      "cwd": "/path/to/odata-mcp-proxy",
       "env": {
         "SAP_DESTINATION_NAME": "your_ci_destination_name",
         "MCP_TRANSPORT": "stdio"

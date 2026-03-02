@@ -1,7 +1,7 @@
 {
-  "name": "cpi-admin-mcp-server",
+  "name": "odata-mcp-proxy",
   "version": "1.0.0",
-  "description": "MCP server for SAP BTP Integration Suite administration via Cloud Integration OData APIs",
+  "description": "Config-driven MCP proxy that exposes OData and REST APIs as MCP tools",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "inspect": "npx @modelcontextprotocol/inspector",
     "inspect:http": "npx @modelcontextprotocol/inspector --cli http://localhost:4004/mcp",
     "build:btp": "mbt build",
-    "deploy:btp": "cf deploy mta_archives/admin-mcp-server_1.0.0.mtar"
+    "deploy:btp": "cf deploy mta_archives/odata-mcp-proxy_1.0.0.mtar"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.1",
