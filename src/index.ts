@@ -24,19 +24,20 @@ logger.info(`Starting ${apiConfig.server.name}`, {
   enabledCategories: config.enabledApiCategories,
 });
 
-// ── 2. Create MCP server ─────────────────────────────────────────────────────
-
-const mcpServer = createMcpServer(apiConfig.server.name, apiConfig.server.version);
-
-// ── 3. Create one OData client per API and register its tools ────────────────
+// ── 2. Create one OData client per API (singletons — own OAuth token caching) ─
 //
 // Destinations are resolved lazily on the first request. The SDK caches
 // destinations and tokens internally, so subsequent calls are fast.
 
-for (const apiDef of apiConfig.apis) {
+interface ODataClientEntry {
+  apiDef: (typeof apiConfig.apis)[number];
+  client: ODataClient;
+}
+
+const odataClients: ODataClientEntry[] = apiConfig.apis.map((apiDef) => {
   const getDestination = (jwt?: string) => resolveDestination(apiDef.destination, jwt);
 
-  const odataClient = new ODataClient(
+  const client = new ODataClient(
     getDestination,
     apiDef.pathPrefix,
     config.requestTimeout,
@@ -50,23 +51,37 @@ for (const apiDef of apiConfig.apis) {
     timeout: config.requestTimeout,
   });
 
-  registerAllTools(
-    mcpServer,
-    odataClient,
-    apiDef.entitySets,
-    config.enabledApiCategories,
-  );
-}
+  return { apiDef, client };
+});
 
-// Register API documentation resources across all APIs
 const allEntitySets = apiConfig.apis.flatMap((api) => api.entitySets);
-registerApiDocResources(mcpServer, allEntitySets, apiConfig.server.name);
 
-logger.info('MCP server ready', {
+logger.info('OData clients ready', {
   apis: apiConfig.apis.map((a) => a.name),
   totalDefinitions: allEntitySets.length,
   enabledCategories: config.enabledApiCategories,
 });
+
+// ── 3. Session factory ────────────────────────────────────────────────────────
+//
+// Each HTTP session (or the single stdio session) gets its own McpServer
+// instance. McpServer.connect() can only be called once per instance, so
+// re-using a singleton across sessions causes "Server already initialized"
+// errors on reconnect.
+//
+// ODataClient instances are shared — they own their OAuth token caches.
+
+function createMcpSession() {
+  const server = createMcpServer(apiConfig.server.name, apiConfig.server.version);
+
+  for (const { apiDef, client } of odataClients) {
+    registerAllTools(server, client, apiDef.entitySets, config.enabledApiCategories);
+  }
+
+  registerApiDocResources(server, allEntitySets, apiConfig.server.name);
+
+  return server;
+}
 
 // ── 4. Start the chosen transport ───────────────────────────────────────────
 
@@ -83,25 +98,73 @@ if (config.mcpTransport === 'http') {
 
   const app = createHttpServer(config.port);
 
-  // Map of active sessions (sessionId -> transport) for stateful mode.
-  const sessions = new Map<string, InstanceType<typeof StreamableHTTPServerTransport>>();
+  // Map of active sessions (sessionId -> transport + server) for stateful mode.
+  type Session = {
+    transport: InstanceType<typeof StreamableHTTPServerTransport>;
+    server: ReturnType<typeof createMcpSession>;
+  };
+  const sessions = new Map<string, Session>();
 
   // Handler for POST /mcp — initialization and JSON-RPC requests
   app.post('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    const body = req.body as { method?: string } | Array<{ method?: string }> | undefined;
+    const isInitRequest = Array.isArray(body)
+      ? body.some((m) => m?.method === 'initialize')
+      : body?.method === 'initialize';
 
-    // If the request carries a session ID, route to the existing transport.
-    if (sessionId && sessions.has(sessionId)) {
-      const transport = sessions.get(sessionId)!;
-      await transport.handleRequest(req, res, req.body);
+    // Non-initialize requests: route to existing session or 404.
+    if (!isInitRequest) {
+      if (sessionId && sessions.has(sessionId)) {
+        const { transport } = sessions.get(sessionId)!;
+        await transport.handleRequest(req, res, req.body);
+        return;
+      }
+
+      // A non-initialize request with a missing/unknown session ID means the
+      // session is gone (server restarted, session expired, client has a stale
+      // ID). Return 404 so the client knows to start fresh.
+      logger.debug('POST /mcp — session not found', {
+        sessionIdHeader: sessionId ?? '(none)',
+        method: Array.isArray(body) ? body.map((m) => m?.method).join(',') : (body?.method ?? '(none)'),
+        activeSessions: sessions.size,
+      });
+      res.status(404).json({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Session not found' },
+        id: null,
+      });
       return;
     }
 
-    // No existing session — create a new transport for this session.
+    // This is an initialize request.
+    //
+    // If there is an existing session for the given ID (client reconnecting
+    // without first sending DELETE), close it gracefully before creating the
+    // new one so we don't leak transports.
+    if (sessionId && sessions.has(sessionId)) {
+      const { server: oldServer } = sessions.get(sessionId)!;
+      sessions.delete(sessionId);
+      try { await oldServer.close(); } catch { /* ignore cleanup errors */ }
+      logger.debug('Closed stale session before re-initialize', { sessionId });
+    }
+
+    // Re-use the client's session ID when one is present in the request.
+    //
+    // Some clients (e.g. MCP Inspector) pre-populate the previous session ID
+    // in their request headers and rely on it for all subsequent requests in
+    // the same connect() call — even after receiving a fresh ID from the
+    // initialize response — because the old ID in requestInit.headers
+    // overwrites the new one in the transport's _commonHeaders() merge.
+    // By echoing back the same ID we keep the server and client in sync.
+    const assignedSessionId = sessionId ?? randomUUID();
+
+    const server = createMcpSession();
+
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
+      sessionIdGenerator: () => assignedSessionId,
       onsessioninitialized: (id: string) => {
-        sessions.set(id, transport);
+        sessions.set(id, { transport, server });
         logger.debug('MCP session initialized', { sessionId: id });
       },
     });
@@ -115,8 +178,8 @@ if (config.mcpTransport === 'http') {
       }
     };
 
-    // Connect the MCP server to this transport.
-    await mcpServer.connect(transport);
+    // Connect the fresh MCP server to this transport.
+    await server.connect(transport);
 
     // Handle the initial request (which will be the initialization handshake).
     await transport.handleRequest(req, res, req.body);
@@ -134,7 +197,7 @@ if (config.mcpTransport === 'http') {
       return;
     }
 
-    const transport = sessions.get(sessionId)!;
+    const { transport } = sessions.get(sessionId)!;
     await transport.handleRequest(req, res);
   });
 
@@ -150,7 +213,7 @@ if (config.mcpTransport === 'http') {
       return;
     }
 
-    const transport = sessions.get(sessionId)!;
+    const { transport } = sessions.get(sessionId)!;
     await transport.handleRequest(req, res, req.body);
   });
 
@@ -163,39 +226,60 @@ if (config.mcpTransport === 'http') {
     healthCheck: `http://localhost:${config.port}/health`,
     mcpEndpoint: `http://localhost:${config.port}/mcp`,
   });
+
+  // ── 5. Graceful shutdown (HTTP) ───────────────────────────────────────────
+
+  async function shutdown(signal: string): Promise<void> {
+    logger.info(`Received ${signal}, shutting down gracefully...`);
+
+    try {
+      await Promise.all([...sessions.values()].map(({ server }) => server.close()));
+      logger.info('All MCP sessions closed');
+    } catch (error) {
+      logger.error('Error during shutdown', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    process.exit(0);
+  }
+
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 } else {
   // --------------------------------------------------------------------------
-  // Stdio transport
+  // Stdio transport — single server instance, no session management needed
   // --------------------------------------------------------------------------
   const { StdioServerTransport } = await import(
     '@modelcontextprotocol/sdk/server/stdio.js'
   );
 
+  const server = createMcpSession();
   const transport = new StdioServerTransport();
 
-  await mcpServer.connect(transport);
+  await server.connect(transport);
 
   logger.info(`${apiConfig.server.name} running on stdio transport`, {
     transport: 'stdio',
   });
-}
 
-// ── 5. Graceful shutdown ────────────────────────────────────────────────────
+  // ── 5. Graceful shutdown (stdio) ──────────────────────────────────────────
 
-async function shutdown(signal: string): Promise<void> {
-  logger.info(`Received ${signal}, shutting down gracefully...`);
+  async function shutdown(signal: string): Promise<void> {
+    logger.info(`Received ${signal}, shutting down gracefully...`);
 
-  try {
-    await mcpServer.close();
-    logger.info('MCP server closed');
-  } catch (error) {
-    logger.error('Error during shutdown', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    try {
+      await server.close();
+      logger.info('MCP server closed');
+    } catch (error) {
+      logger.error('Error during shutdown', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    process.exit(0);
   }
 
-  process.exit(0);
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
-
-process.on('SIGINT', () => void shutdown('SIGINT'));
-process.on('SIGTERM', () => void shutdown('SIGTERM'));

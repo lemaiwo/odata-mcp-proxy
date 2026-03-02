@@ -10,6 +10,8 @@
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "inspect": "npx @modelcontextprotocol/inspector",
+    "inspect:http": "npx @modelcontextprotocol/inspector --cli http://localhost:4004/mcp",
     "build:btp": "mbt build",
     "deploy:btp": "cf deploy mta_archives/*.mtar"
   },
@@ -18,12 +20,14 @@
     "@sap-cloud-sdk/connectivity": "^4.0.0",
     "@sap-cloud-sdk/http-client": "^4.0.0",
     "@sap/xsenv": "^4.0.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
     "winston": "^3.17.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.21.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",

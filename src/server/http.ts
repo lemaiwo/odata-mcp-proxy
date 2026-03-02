@@ -36,7 +36,8 @@ export function createHttpServer(port: number): Express {
       // In development, allow all origins for convenience.
       origin: isProduction ? (corsOrigin ?? false) : true,
       methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'mcp-session-id'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'mcp-session-id', 'mcp-protocol-version'],
+      exposedHeaders: ['mcp-session-id'],
       credentials: true,
     }),
   );

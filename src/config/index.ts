@@ -1,11 +1,14 @@
 import dotenv from "dotenv";
+import xsenv from "@sap/xsenv";
 import { z } from "zod";
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
 import type { EntitySetDefinition } from '../tools/registry.js';
 
-// Load .env file into process.env on import
+// Load default-env.json first (populates VCAP_SERVICES for local BTP dev),
+// then load .env for any remaining overrides.
+xsenv.loadEnv();
 dotenv.config();
 
 /**
