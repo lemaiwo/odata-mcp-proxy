@@ -4,6 +4,7 @@
   "description": "Config-driven MCP proxy that exposes OData and REST APIs as MCP tools",
   "type": "module",
   "main": "dist/index.js",
+  "license": "MIT",
   "scripts": {
     "build": "tsc && cp src/config/*.json dist/config/",
     "start": "node dist/index.js",
