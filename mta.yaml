@@ -19,10 +19,11 @@ modules:
       health-check-timeout: 180
       command: npm run start:http
     build-parameters:
-      builder: npm
-      build-commands:
-        - npm i
+      builder: custom
+      commands:
+        - npm install
         - npm run build
+        - npm prune --production
       ignore:
         - node_modules/
         - src/

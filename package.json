@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "license": "MIT",
   "scripts": {
-    "build": "tsc && cp src/config/*.json dist/config/",
+    "build": "tsc && node -e \"const fs=require('fs');fs.readdirSync('src/config').filter(f=>f.endsWith('.json')).forEach(f=>fs.copyFileSync('src/config/'+f,'dist/config/'+f))\"",
     "start": "node dist/index.js",
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
