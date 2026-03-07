@@ -1,13 +1,16 @@
-{
+ {
   "xsappname": "odata-mcp-proxy",
   "tenant-mode": "dedicated",
+  "description": "BTP SAP OData MCP Proxy Server Security Configuration",
   "oauth2-configuration": {
     "redirect-uris": [
       "http://localhost:4004/oauth/callback",
       "http://localhost:4004/**",
       "https://*.cfapps.eu10.hana.ondemand.com/**",
       "https://*.cfapps.eu10-004.hana.ondemand.com/**",
-      "https://*.cfapps.eu20.hana.ondemand.com/**"
+      "https://*.cfapps.eu20.hana.ondemand.com/**",
+      "https://*.cfapps.*.hana.ondemand.com/**"
+
     ]
   },
   "scopes": [
@@ -49,5 +52,30 @@
         "$XSAPPNAME.admin"
       ]
     }
-  ]
+  ],
+  "role-collections": [
+    {
+      "name": "MCP Viewer",
+      "description": "View SAP CPI data via MCP server",
+      "role-template-references": [
+        "$XSAPPNAME.MCPViewer"
+      ]
+    },
+    {
+      "name": "MCP Editor",
+      "description": "View and modify SAP CPI data via MCP server",
+      "role-template-references": [
+        "$XSAPPNAME.MCPEditor"
+      ]
+    },
+    {
+      "name": "MCP Admin",
+      "description": "Full administrative access to SAP CPI via MCP server",
+      "role-template-references": [
+        "$XSAPPNAME.MCPAdmin"
+      ]
+    }
+    
+  ],
+  "authorities": ["$XSAPPNAME.read"]
 }
