@@ -140,7 +140,11 @@ export async function resolveDestination(
 
     if (isOnBtp) {
       logger.info('Using BTP Destination Service (lazy resolution via SDK)', { destinationName });
-      return { destinationName, jwt, useCache: true } as HttpDestinationOrFetchOptions;
+      return {
+        destinationName,
+        jwt,
+        useCache: Boolean(jwt),
+      } as HttpDestinationOrFetchOptions;
     }
 
     return resolveLocal(destinationName);

@@ -295,9 +295,17 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
       }
     });
 
-    // ── Static client registration (RFC 7591) ────────────────────────────────
-    // Returns pre-configured XSUAA client credentials so MCP clients (e.g.
-    // MCP Inspector) can auto-register without a dynamic registration flow.
+    // ── Dynamic client registration (RFC 7591) ───────────────────────────────
+    // Returns pre-configured XSUAA client credentials so MCP clients can
+    // auto-register without a real per-client provisioning flow.
+    //
+    // We echo back the client's submitted `redirect_uris` and `client_name`.
+    // RFC 7591 §3.2.1 allows the server to override these, but doing so breaks
+    // clients that trust the response (e.g. OpenWebUI overwrites its own
+    // redirect URI with whatever we return — see open-webui/open-webui
+    // `backend/open_webui/utils/oauth.py`). When the redirect URI then points
+    // back at our own /oauth/callback, the proxy redirect creates an infinite
+    // loop and authentication fails.
     app.post('/oauth/client-registration', (req: Request, res: Response) => {
       const creds = auth.getClientCredentials();
       if (!creds) {
@@ -305,16 +313,24 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
         return;
       }
       const baseUrl = getBaseUrl(req);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const requestedRedirectUris =
+        Array.isArray(body['redirect_uris']) && body['redirect_uris'].every((u) => typeof u === 'string')
+          ? (body['redirect_uris'] as string[])
+          : null;
+      const requestedClientName =
+        typeof body['client_name'] === 'string' ? (body['client_name'] as string) : undefined;
+
       res.json({
         client_id: creds.clientid,
         client_secret: creds.clientsecret,
         client_id_issued_at: Math.floor(Date.now() / 1000),
         client_secret_expires_at: 0,
-        redirect_uris: [`${baseUrl}/oauth/callback`],
+        redirect_uris: requestedRedirectUris ?? [`${baseUrl}/oauth/callback`],
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         token_endpoint_auth_method: 'client_secret_basic',
-        client_name: 'OData MCP Proxy',
+        client_name: requestedClientName ?? 'OData MCP Proxy',
         registration_client_uri: `${baseUrl}/oauth/client-registration`,
         'x-xsuaa-metadata': {
           url: creds.url,
