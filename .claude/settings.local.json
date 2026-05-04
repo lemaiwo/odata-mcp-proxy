@@ -33,7 +33,9 @@
       "Read(//tmp/**)",
       "Bash(unzip -o archive.zip odata-mcp-proxy/data.zip -d .)",
       "Bash(unzip -l odata-mcp-proxy/data.zip)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npm pack:*)",
+      "Bash(taskkill:*)"
     ]
   }
 }

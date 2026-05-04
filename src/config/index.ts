@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import xsenv from "@sap/xsenv";
 import { z } from "zod";
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
 import type { EntitySetDefinition } from '../tools/registry.js';
@@ -156,11 +156,30 @@ export interface ApiConfig {
 
 /**
  * Load API configuration from a JSON file.
- * Relative filenames are resolved against this module's directory (src/config/).
+ *
+ * Resolution order for relative filenames:
+ *   1. Current working directory (consumer's project root)
+ *   2. This package's bundled config directory (dist/config/)
+ *
+ * This allows consumers who install the package via npm to drop their own
+ * config file in their project root (like the SAP approuter pattern),
+ * while still falling back to the bundled defaults.
  */
 function loadApiConfig(filename: string): ApiConfig {
-  const configDir = dirname(fileURLToPath(import.meta.url));
-  const filePath = isAbsolute(filename) ? filename : join(configDir, filename);
+  let filePath: string;
+
+  if (isAbsolute(filename)) {
+    filePath = filename;
+  } else {
+    const cwdPath = join(process.cwd(), filename);
+    if (existsSync(cwdPath)) {
+      filePath = cwdPath;
+    } else {
+      const packageConfigDir = dirname(fileURLToPath(import.meta.url));
+      filePath = join(packageConfigDir, filename);
+    }
+  }
+
   return JSON.parse(readFileSync(filePath, 'utf-8')) as ApiConfig;
 }
 

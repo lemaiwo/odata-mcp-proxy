@@ -114,9 +114,176 @@ Add the server to your Claude Desktop MCP configuration (`claude_desktop_config.
 
 ---
 
-## BTP Deployment
+## Using as an npm Package
 
-The project includes an `mta.yaml` descriptor for deployment to SAP BTP Cloud Foundry. The MTA provisions the required service instances (Destination, Connectivity, XSUAA) and deploys the server as a Node.js application using HTTP transport.
+You can consume `odata-mcp-proxy` as a dependency in your own project -- similar to how the [SAP Application Router](https://www.npmjs.com/package/@sap/approuter) works. No TypeScript compilation or build step required.
+
+### 1. Create your project
+
+```bash
+mkdir my-mcp-server
+cd my-mcp-server
+npm init -y
+npm install odata-mcp-proxy
+```
+
+### 2. Add a start script
+
+In your `package.json`:
+
+```json
+{
+  "scripts": {
+    "start": "odata-mcp-proxy"
+  },
+  "dependencies": {
+    "odata-mcp-proxy": "^1.0.0"
+  }
+}
+```
+
+### 3. Add your API config
+
+Create an `api-config.json` in your project root. The CLI automatically picks it up from the working directory. See the [bundled config files](src/config/) for the full format.
+
+```json
+{
+  "server": {
+    "name": "my-mcp-server",
+    "version": "1.0.0",
+    "description": "My custom MCP server"
+  },
+  "apis": [
+    {
+      "name": "my-api",
+      "destination": "MY_DESTINATION",
+      "pathPrefix": "/api/v1",
+      "csrfProtected": true,
+      "entitySets": [
+        {
+          "entitySet": "Products",
+          "description": "product entities",
+          "category": "master-data",
+          "keys": [{ "name": "Id", "type": "string" }],
+          "operations": { "list": true, "get": true, "create": false, "update": false, "delete": false }
+        }
+      ]
+    }
+  ]
+}
+```
+
+You can also use a custom filename with the `--config` flag:
+
+```bash
+odata-mcp-proxy --config my-custom-config.json
+```
+
+Or set it via environment variable:
+
+```bash
+API_CONFIG_FILE=my-custom-config.json npm start
+```
+
+If no config file is found in the working directory, the bundled defaults (SAP Cloud Integration APIs) are used.
+
+### 4. Configure credentials
+
+For local development, create a `.env` file or `default-env.json` with your destination credentials. The env var prefix is derived from the `destination` field in your config -- uppercase it and replace non-alphanumeric characters with `_`.
+
+For example, destination `"MY_DESTINATION"` maps to:
+
+```dotenv
+MY_DESTINATION_BASE_URL=https://my-api.example.com
+MY_DESTINATION_TOKEN_URL=https://auth.example.com/oauth/token
+MY_DESTINATION_CLIENT_ID=...
+MY_DESTINATION_CLIENT_SECRET=...
+```
+
+On BTP, use the Destination Service instead (credentials are resolved automatically via `VCAP_SERVICES`).
+
+### 5. Project structure
+
+A complete consumer project looks like this:
+
+```
+my-mcp-server/
+├── package.json          # start script + dependency
+├── api-config.json       # your API configuration
+├── default-env.json      # local BTP credentials (gitignored)
+├── .env                  # local env overrides (gitignored)
+├── mta.yaml              # BTP deployment descriptor
+└── xs-security.json      # XSUAA config (if using OAuth)
+```
+
+### Deploying to BTP as a consumer project
+
+Since there is no build step, the `mta.yaml` is straightforward -- just like the SAP Application Router:
+
+```yaml
+_schema-version: "3.1"
+ID: my-mcp-server
+version: 1.0.0
+
+parameters:
+  enable-parallel-deployments: true
+
+modules:
+  - name: my-mcp-server
+    type: nodejs
+    path: .
+    parameters:
+      memory: 512M
+      disk-quota: 1G
+      buildpack: nodejs_buildpack
+      health-check-type: http
+      health-check-http-endpoint: /health
+      command: npm start
+    build-parameters:
+      builder: npm
+      ignore:
+        - .git/
+        - .env
+        - default-env.json
+    requires:
+      - name: my-destination
+      - name: my-connectivity
+      - name: my-xsuaa
+
+resources:
+  - name: my-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  - name: my-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
+
+  - name: my-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: xs-security.json
+```
+
+The key difference from a standalone deployment: `builder: npm` is all you need. MBT runs `npm install --production`, which installs the pre-built `odata-mcp-proxy` package from the registry. No TypeScript, no custom build commands.
+
+Deploy with:
+
+```bash
+mbt build && cf deploy mta_archives/my-mcp-server_1.0.0.mtar
+```
+
+---
+
+## BTP Deployment (Standalone)
+
+When working with the source repository directly (not as an npm dependency), the project includes its own `mta.yaml` for deployment to SAP BTP Cloud Foundry. The MTA provisions the required service instances (Destination, Connectivity, XSUAA) and deploys the server as a Node.js application using HTTP transport.
 
 ```bash
 npm run build:btp    # Build the MTA archive

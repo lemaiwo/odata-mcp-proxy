@@ -4,6 +4,12 @@
   "description": "Config-driven MCP proxy that exposes OData and REST APIs as MCP tools",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "odata-mcp-proxy": "dist/cli.js"
+  },
+  "files": [
+    "dist/"
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');fs.readdirSync('src/config').filter(f=>f.endsWith('.json')).forEach(f=>fs.copyFileSync('src/config/'+f,'dist/config/'+f))\"",
