@@ -1,6 +1,6 @@
 {
   "name": "odata-mcp-proxy",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Config-driven MCP proxy that exposes OData and REST APIs as MCP tools",
   "type": "module",
   "main": "dist/index.js",

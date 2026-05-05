@@ -8,6 +8,7 @@
 //   - Health check
 //   - OAuth2 endpoints (when XSUAA is configured):
 //       GET  /.well-known/oauth-authorization-server  RFC 8414 discovery
+//       GET  /.well-known/oauth-protected-resource    RFC 9728 protected-resource metadata
 //       GET  /oauth/authorize                          Start OAuth flow
 //       GET  /oauth/callback                           XSUAA → client redirect
 //       GET  /oauth/token                              Token endpoint (GET form)
@@ -149,6 +150,20 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
         }
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.json(metadata);
+      },
+    );
+
+    // ── RFC 9728 Protected Resource Metadata ─────────────────────────────────
+    app.get(
+      ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'],
+      (req: Request, res: Response) => {
+        const baseUrl = getBaseUrl(req);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.json({
+          resource: baseUrl,
+          authorization_servers: [baseUrl],
+          bearer_methods_supported: ['header'],
+        });
       },
     );
 
