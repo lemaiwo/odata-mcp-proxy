@@ -159,28 +159,36 @@ export interface ApiConfig {
  *
  * Resolution order for relative filenames:
  *   1. Current working directory (consumer's project root)
- *   2. This package's bundled config directory (dist/config/)
+ *   2. Directory of the entry script (process.argv[1])
+ *   3. This package's bundled config directory (dist/config/)
  *
  * This allows consumers who install the package via npm to drop their own
  * config file in their project root (like the SAP approuter pattern),
  * while still falling back to the bundled defaults.
  */
 function loadApiConfig(filename: string): ApiConfig {
-  let filePath: string;
+  const candidates: string[] = [];
 
   if (isAbsolute(filename)) {
-    filePath = filename;
+    candidates.push(filename);
   } else {
-    const cwdPath = join(process.cwd(), filename);
-    if (existsSync(cwdPath)) {
-      filePath = cwdPath;
-    } else {
-      const packageConfigDir = dirname(fileURLToPath(import.meta.url));
-      filePath = join(packageConfigDir, filename);
+    candidates.push(join(process.cwd(), filename));
+    if (process.argv[1]) {
+      candidates.push(join(dirname(process.argv[1]), filename));
     }
+    candidates.push(join(dirname(fileURLToPath(import.meta.url)), filename));
   }
 
-  return JSON.parse(readFileSync(filePath, 'utf-8')) as ApiConfig;
+  const found = candidates.find((p) => existsSync(p));
+  if (!found) {
+    throw new Error(
+      `API config file '${filename}' not found. Searched:\n` +
+        candidates.map((p) => `  - ${p}`).join('\n') +
+        `\n\nProvide an absolute path via API_CONFIG_FILE, or place the file at one of the locations above.`
+    );
+  }
+
+  return JSON.parse(readFileSync(found, 'utf-8')) as ApiConfig;
 }
 
 /**
