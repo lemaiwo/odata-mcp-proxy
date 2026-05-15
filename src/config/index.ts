@@ -191,6 +191,37 @@ function loadApiConfig(filename: string): ApiConfig {
   return JSON.parse(readFileSync(found, 'utf-8')) as ApiConfig;
 }
 
+// ─── Scope-aware Operation Definition ───────────────────────────────────────
+
+/**
+ * An operation can be a plain boolean (backwards compatible)
+ * or an object with an enabled flag and an optional requiredScope.
+ *
+ * Examples:
+ *   true
+ *   false
+ *   { enabled: true, requiredScope: "read" }
+ *   { enabled: true, requiredScope: "write" }
+ *   { enabled: true, requiredScope: "admin" }
+ */
+export type OperationDefinition =
+  | boolean
+  | { enabled: boolean; requiredScope?: string };
+
+/**
+ * Normalise any OperationDefinition to a plain object so the rest
+ * of the code never has to branch on boolean vs object.
+ */
+export function resolveOperation(op: OperationDefinition | undefined): {
+  enabled: boolean;
+  requiredScope?: string;
+} {
+  if (op === undefined || op === false) return { enabled: false };
+  if (op === true) return { enabled: true };
+  return { enabled: op.enabled, requiredScope: op.requiredScope };
+}
+
+
 /**
  * API configuration — server identity and all API definitions.
  * Loaded from the file specified by `API_CONFIG_FILE` (default: api-config.json).
