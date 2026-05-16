@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ODataClient } from '../client/odata-client.js';
+import { type OperationDefinition, resolveOperation } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
 // ─── Tool Definition Types ───────────────────────────────────────────────────
@@ -27,11 +28,11 @@ export interface NavigationProperty {
  * Supported CRUD operations for an entity set.
  */
 export interface EntityOperations {
-  list: boolean;
-  get: boolean;
-  create: boolean;
-  update: boolean;
-  delete: boolean;
+  list: OperationDefinition;
+  get: OperationDefinition;
+  create: OperationDefinition;
+  update: OperationDefinition;
+  delete: OperationDefinition;
 }
 
 /**
@@ -122,6 +123,39 @@ function formatKeyHint(keys: KeyProperty[]): string {
 }
 
 /**
+ * Verify that the user JWT contains the required scope.
+ * Throws an error if the scope is missing or the token is invalid.
+ */
+function checkScope(requiredScope: string | undefined, jwt: string | undefined): void {
+  if (!requiredScope) return; // no restriction defined, allow all
+
+  if (!jwt) {
+    throw new Error('Unauthorized: no token provided');
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(jwt.split('.')[1], 'base64url').toString('utf-8')
+    );
+    const scopes: string[] = payload.scope ?? [];
+
+    // Accept both "appname.scopename" (XSUAA format) and bare "scopename"
+    const hasScope =
+      scopes.some((s) => s === requiredScope) ||
+      scopes.some((s) => s.endsWith(`.${requiredScope}`));
+
+    if (!hasScope) {
+      throw new Error(`Forbidden: operation requires scope '${requiredScope}'`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Forbidden')) {
+      throw error;
+    }
+    throw new Error('Unauthorized: invalid token');
+  }
+}
+
+/**
  * Generic handler that forwards the tool call to the OData client.
  */
 async function handleToolCall(
@@ -160,52 +194,78 @@ export function registerEntityTools(
   const urlPath = definition.urlPath ?? entitySet;
   const keyHint = formatKeyHint(keys);
 
-  if (operations.list) {
+  // Resolve all operations once — normalises boolean | object to { enabled, requiredScope }
+  const opList   = resolveOperation(operations.list);
+  const opGet    = resolveOperation(operations.get);
+  const opCreate = resolveOperation(operations.create);
+  const opUpdate = resolveOperation(operations.update);
+  const opDelete = resolveOperation(operations.delete);
+
+  if (opList.enabled) {
     server.tool(
       `${entitySet}_list`,
       `List ${description}. Returns a collection of entities with optional OData query options (GET).${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'GET', urlPath, undefined, args, extra.authInfo?.token),
+      async (args, extra) => {
+        try { checkScope(opList.requiredScope, extra.authInfo?.token); }
+        catch (e) { return formatToolError(e instanceof Error ? e.message : String(e)); }
+        return handleToolCall(client, 'GET', urlPath, undefined, args, extra.authInfo?.token);
+      },
     );
   }
 
-  if (operations.get && keys.length > 0) {
+  if (opGet.enabled && keys.length > 0) {
     server.tool(
       `${entitySet}_get`,
       `Get a single ${description} by its key(s) (GET).${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'GET', urlPath, undefined, args, extra.authInfo?.token),
+      async (args, extra) => {
+        try { checkScope(opGet.requiredScope, extra.authInfo?.token); }
+        catch (e) { return formatToolError(e instanceof Error ? e.message : String(e)); }
+        return handleToolCall(client, 'GET', urlPath, undefined, args, extra.authInfo?.token);
+      },
     );
   }
 
-  if (operations.create) {
+  if (opCreate.enabled) {
     server.tool(
       `${entitySet}_create`,
       `Create a new ${description} (POST). Provide entity properties in the body.`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'POST', urlPath, undefined, args, extra.authInfo?.token),
+      async (args, extra) => {
+        try { checkScope(opCreate.requiredScope, extra.authInfo?.token); }
+        catch (e) { return formatToolError(e instanceof Error ? e.message : String(e)); }
+        return handleToolCall(client, 'POST', urlPath, undefined, args, extra.authInfo?.token);
+      },
     );
   }
 
-  if (operations.update && keys.length > 0) {
+  if (opUpdate.enabled && keys.length > 0) {
     server.tool(
       `${entitySet}_update`,
       `Update an existing ${description} (PATCH). Provide key(s) in path and properties in body.${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'PATCH', urlPath, undefined, args, extra.authInfo?.token),
+      async (args, extra) => {
+        try { checkScope(opUpdate.requiredScope, extra.authInfo?.token); }
+        catch (e) { return formatToolError(e instanceof Error ? e.message : String(e)); }
+        return handleToolCall(client, 'PATCH', urlPath, undefined, args, extra.authInfo?.token);
+      },
     );
   }
 
-  if (operations.delete && keys.length > 0) {
+  if (opDelete.enabled && keys.length > 0) {
     server.tool(
       `${entitySet}_delete`,
       `Delete a ${description} by its key(s) (DELETE).${keyHint}`,
       genericToolSchema,
-      async (args, extra) => handleToolCall(client, 'DELETE', urlPath, undefined, args, extra.authInfo?.token),
+      async (args, extra) => {
+        try { checkScope(opDelete.requiredScope, extra.authInfo?.token); }
+        catch (e) { return formatToolError(e instanceof Error ? e.message : String(e)); }
+        return handleToolCall(client, 'DELETE', urlPath, undefined, args, extra.authInfo?.token);
+      },
     );
   }
 
-  // Register navigation property tools
   if (navigationProperties) {
     for (const nav of navigationProperties) {
       server.tool(
@@ -219,8 +279,8 @@ export function registerEntityTools(
   }
 
   logger.debug(`Registered tools for ${entitySet}`, {
-    operations: Object.entries(operations)
-      .filter(([, v]) => v)
+    operations: (Object.entries(operations) as [string, OperationDefinition][])
+      .filter(([, v]) => resolveOperation(v).enabled)
       .map(([k]) => k),
     navProps: navigationProperties?.map((n) => n.name) ?? [],
   });
