@@ -196,11 +196,26 @@ export class ODataClient {
 
   /**
    * Convert SDK/axios errors into ODataApiError for consistent error handling.
+   *
+   * The SAP Cloud SDK wraps failures in ErrorWithCause chains (e.g. "Failed to
+   * build headers." with the actual reason nested in `cause`), so the cause
+   * chain is flattened into the message to keep the root cause visible.
    */
   private handleError(error: unknown): unknown {
-    const response = (error as { response?: { status?: number; data?: unknown } })?.response;
-    if (response?.status) {
-      return parseODataError(response.status, response.data);
+    let current: unknown = error;
+    const messages: string[] = [];
+
+    while (current instanceof Error) {
+      const response = (current as { response?: { status?: number; data?: unknown } }).response;
+      if (response?.status) {
+        return parseODataError(response.status, response.data);
+      }
+      messages.push(current.message);
+      current = current.cause;
+    }
+
+    if (messages.length > 1) {
+      return new Error(messages.join(' Caused by: '));
     }
     return error;
   }
