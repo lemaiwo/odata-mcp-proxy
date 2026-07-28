@@ -20,12 +20,15 @@ npm start
 # Run with stdio transport (for Claude Desktop)
 npm run start:stdio
 
+# Run tests (node:test via tsx; builds first — the e2e test boots dist/index.js)
+npm test
+
 # Deploy to SAP BTP
 npm run build:btp    # Build MTA archive
 npm run deploy:btp   # Deploy via CF CLI
 ```
 
-No test framework is configured in this project.
+Tests live in `test/` (unit tests for the UI layer and destination fallback, plus a stdio end-to-end test against a stub config in `test/fixtures/`).
 
 ## Architecture
 
@@ -65,13 +68,15 @@ API categories (can be filtered via `ENABLED_API_CATEGORIES` env var):
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point; wires transport, OData clients, MCP server |
+| `src/index.ts` | Package root: exports `start(options?)` (with `registerExtras` session hook) and re-exports the building blocks; self-executes only when run directly |
+| `src/cli.ts` | CLI entry point (`--config` flag, then calls `start()`) |
 | `src/server/mcp-server.ts` | MCP server factory |
 | `src/server/http.ts` | Express HTTP server and session management |
 | `src/client/odata-client.ts` | OData HTTP client (GET/POST/PATCH/DELETE, binary downloads) |
 | `src/client/destination-service.ts` | Credential resolution (BTP vs local) |
 | `src/client/retry.ts` | Exponential backoff retry logic |
 | `src/tools/registry.ts` | Tool registration and OData call handlers |
+| `src/ui/` | Config-driven MCP-UI views (lazy-loaded; template rendering, data fetching, tool/resource registration) |
 | `src/config/api-config.json` | All API definitions (destinations, path prefixes, entity sets) |
 | `src/config/index.ts` | Zod-validated config loaded from environment; `ApiDefinition` / `ApiConfig` types |
 | `src/types/entities.ts` | TypeScript interfaces for OData entities |
@@ -126,6 +131,10 @@ Destination names and path prefixes live under the `apis` array. Each entry supp
 - `urlPath`: URL path segment override (defaults to `entitySet` when omitted; useful when REST path casing differs from the tool name)
 
 Add more objects to the array to expose additional backend APIs — each gets its own `ODataClient` instance.
+
+The config may also contain an optional top-level `ui` array of interactive MCP-UI views (read-only tools that fetch declared data sources through the shared clients and return an HTML template with the JSON payload baked into the `"__DATA__"` token). See the README section "Interactive UI Views (mcp-ui)" for the schema. The `src/ui/` module and `@mcp-ui/server` load lazily, only when a config declares UI views.
+
+Programmatic consumers import `start(options?)` from the package root; `options.registerExtras(server, ctx)` runs in the per-session factory with `ctx = { clientsByApi, apiConfig, config }`. Deep `odata-mcp-proxy/dist/...` imports remain supported via the `exports` map.
 
 #### Local development credentials
 
