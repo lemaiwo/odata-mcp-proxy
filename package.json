@@ -26,7 +26,7 @@
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/e2e-stdio.test.ts",
+    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/destination-local.test.ts test/e2e-stdio.test.ts",
     "inspect": "npx @modelcontextprotocol/inspector",
     "inspect:http": "npx @modelcontextprotocol/inspector --cli http://localhost:4004/mcp",
     "build:btp": "mbt build",
