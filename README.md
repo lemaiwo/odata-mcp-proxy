@@ -322,10 +322,61 @@ Per entry:
 | `description` | yes | Tool description for the LLM. |
 | `uri` | yes | `ui://` resource URI. The template is also registered as an MCP resource at this URI (with `null` data), so MCP Apps hosts that pre-fetch templates can use render-data delivery. |
 | `template` | yes | HTML template file, path relative to the config file. File reads are cached. |
-| `inputs` | no | Tool parameters: `{ "name": { "type": "string"\|"number"\|"boolean", "required": bool, "description": "..." } }`. Compiled into the tool's input schema. |
-| `data` | no | Named data sources, fetched **concurrently** on invocation through the shared OData client of the referenced `api` (the caller's JWT is forwarded, exactly like the generated entity tools). `{param}` placeholders in `path` are substituted with URL-encoded values from the tool arguments. `"optional": true` entries fail soft to `null`; a failure in any other entry returns an `isError` tool result. |
+| `inputs` | no | Tool parameters: `{ "name": { "type": "string"\|"number"\|"boolean", "required": bool, "default": val, "min": n, "max": n, "description": "..." } }`. Compiled into the tool's input schema. A `default` is applied during parsing, so placeholders referencing that parameter always resolve; `min`/`max` bound number inputs. |
+| `data` | no | Named data sources, fetched **concurrently** on invocation through the shared OData client of the referenced `api` (the caller's JWT is forwarded, exactly like the generated entity tools). Placeholders in `path` are substituted with URL-encoded values (see below). `"optional": true` entries fail soft to `null`; a failure in any other entry returns an `isError` tool result. Each source also accepts `paginate` and `select`. |
 | `partials` | no | Literal token → file map. Each file (path relative to the config file) is inlined into the template *before* data injection — useful for shared CSS/JS. |
 | `frameSize` | no | Overrides the mcp-ui `preferred-frame-size` (default `["100%", "760px"]`). |
+
+### Path placeholders
+
+`{param}` expands to a validated tool argument. `{$...}` expands to a **fixed, closed vocabulary** of derived values — enough for reporting windows and paging without a templating language (there is no eval and no user-defined function):
+
+| Placeholder | Expands to |
+|---|---|
+| `{$now:FMT}` | The current UTC time. |
+| `{$monthsAgo(N):FMT}` | The **first of the month**, `N` months back — so a `yyyymm` window is stable no matter which day the tool runs. |
+| `{$daysAgo(N):FMT}` | `N` days back. |
+| `{$offset}` / `{$pageSize}` | Page position. Only valid on a source with a `paginate` block. |
+
+`FMT` is `yyyymm` (`202608`), `date` (`2026-08-11`), or `iso` (default). `N` is an integer, the name of a tool input, or that name with one integer offset (`months-1`) — the offset form exists so an *inclusive* window ("the last 6 months, including this one") is expressible, and it is the only arithmetic supported.
+
+```json
+"usage": { "api": "uas", "path": "monthlyUsage?fromDate={$monthsAgo(months-1):yyyymm}&toDate={$now:yyyymm}" }
+```
+
+Because dates resolve at call time, a view using them is not a pure function of its arguments — expected for reporting windows, worth knowing when caching.
+
+### Pagination
+
+`paginate` repeats the request until the collection is exhausted, a short page arrives, or `maxItems` is hit:
+
+```json
+"users": {
+  "api": "xsuaa-scim",
+  "path": "Users?startIndex={$offset}&count={$pageSize}",
+  "paginate": { "strategy": "offset", "pageSize": 100, "maxItems": 500,
+                "itemsPath": "resources", "totalPath": "totalResults" }
+}
+```
+
+| Field | Description |
+|---|---|
+| `strategy` | `offset` (1-based, SCIM `startIndex`) or `skiptop` (0-based, OData `$skip`). |
+| `pageSize` | Items per request, exposed as `{$pageSize}` (default `100`). |
+| `maxItems` | Hard cap on accumulated items (default `1000`). |
+| `itemsPath` | Dotted path to the item array. Auto-detected (`value`, `resources`, `results`, `content`, `d.results`) when omitted. |
+| `totalPath` | Dotted path to the backend's total count, when it reports one. |
+
+A paginated source returns a normalized `{ items, total, truncated, pages }` object rather than the raw response — so templates read `.items`, and **`truncated` tells them the view is showing a capped subset** instead of silently under-reporting.
+
+### Trimming the payload
+
+The payload is baked into the template *and* returned as `structuredContent`, so raw responses reach the model. `select` keeps only the listed dotted paths of each item, preserving the surrounding envelope:
+
+```json
+"subaccounts": { "api": "cis-accounts", "path": "subaccounts",
+                 "select": ["guid", "displayName", "region", "state"] }
+```
 
 **Templates** are full, self-contained HTML/JS pages. The server replaces the token `"__DATA__"` with the JSON payload:
 

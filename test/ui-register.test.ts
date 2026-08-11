@@ -58,6 +58,48 @@ test('buildInputSchema rejects unsupported input types', () => {
   );
 });
 
+test('buildInputSchema applies defaults so placeholders always see a value', () => {
+  const shape = buildInputSchema({
+    ...helloView,
+    inputs: {
+      months: { type: 'number', default: 6, description: 'Reporting window' },
+      scope: { type: 'string', default: 'all' },
+    },
+  });
+
+  const parsed = z.object(shape).parse({});
+  assert.deepEqual(parsed, { months: 6, scope: 'all' });
+  // An explicit value still wins over the default.
+  assert.deepEqual(z.object(shape).parse({ months: 12 }), { months: 12, scope: 'all' });
+});
+
+test('buildInputSchema enforces min/max bounds on number inputs', () => {
+  const shape = buildInputSchema({
+    ...helloView,
+    inputs: { months: { type: 'number', default: 6, min: 1, max: 24 } },
+  });
+  const schema = z.object(shape);
+
+  assert.equal(schema.parse({}).months, 6);
+  assert.ok(schema.safeParse({ months: 24 }).success);
+  assert.ok(!schema.safeParse({ months: 0 }).success);
+  assert.ok(!schema.safeParse({ months: 25 }).success);
+});
+
+test('buildInputSchema rejects min/max on non-number inputs', () => {
+  assert.throws(
+    () => buildInputSchema({ ...helloView, inputs: { who: { type: 'string', min: 1 } } }),
+    /only applies to number inputs/,
+  );
+});
+
+test('buildInputSchema rejects a default whose type contradicts the declaration', () => {
+  assert.throws(
+    () => buildInputSchema({ ...helloView, inputs: { months: { type: 'number', default: 'six' } } }),
+    /has a string default but is declared as number/,
+  );
+});
+
 test('summarizeUiResult counts items per data entry', () => {
   const text = summarizeUiResult('UI_X', {
     plain: [1, 2],
@@ -72,6 +114,16 @@ test('summarizeUiResult counts items per data entry', () => {
   assert.match(text, /odataV2: 3 items/);
   assert.match(text, /single: 1 result/);
   assert.match(text, /missing: unavailable/);
+});
+
+test('summarizeUiResult counts paginated entries and flags truncation', () => {
+  const text = summarizeUiResult('UI_X', {
+    full: { items: [1, 2, 3], total: 3, truncated: false, pages: 1 },
+    capped: { items: [1, 2], total: 900, truncated: true, pages: 1 },
+  });
+  assert.match(text, /full: 3 items/);
+  assert.doesNotMatch(text, /full: 3 items \(capped/);
+  assert.match(text, /capped: 2 items \(capped, more available\)/);
 });
 
 test('handler returns text summary + ui resource + structuredContent payload', async () => {

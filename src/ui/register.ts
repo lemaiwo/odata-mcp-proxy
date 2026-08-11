@@ -53,8 +53,29 @@ export function buildInputSchema(view: UiViewDefinition): Record<string, ZodType
       );
     }
     let schema: ZodTypeAny = factory();
+
+    if (input.min !== undefined || input.max !== undefined) {
+      if (input.type !== 'number') {
+        throw new Error(`UI view "${view.tool}": input "${name}" uses min/max, which only applies to number inputs`);
+      }
+      let numeric = schema as z.ZodNumber;
+      if (input.min !== undefined) numeric = numeric.min(input.min);
+      if (input.max !== undefined) numeric = numeric.max(input.max);
+      schema = numeric;
+    }
+
     if (input.description) schema = schema.describe(input.description);
-    if (!input.required) schema = schema.optional();
+    if (input.default !== undefined) {
+      if (typeof input.default !== input.type) {
+        throw new Error(
+          `UI view "${view.tool}": input "${name}" has a ${typeof input.default} default but is declared as ${input.type}`,
+        );
+      }
+      // Applied during parsing, so placeholder substitution always sees a value.
+      schema = schema.default(input.default);
+    } else if (!input.required) {
+      schema = schema.optional();
+    }
     shape[name] = schema;
   }
   return shape;
@@ -65,6 +86,8 @@ function itemCount(value: unknown): number | undefined {
   if (Array.isArray(value)) return value.length;
   if (value && typeof value === 'object') {
     const obj = value as Record<string, unknown>;
+    // Paginated sources carry the normalized { items, total, truncated } shape.
+    if (Array.isArray(obj.items)) return obj.items.length;
     for (const key of ['value', 'results', 'content', 'resources']) {
       if (Array.isArray(obj[key])) return (obj[key] as unknown[]).length;
     }
@@ -72,6 +95,11 @@ function itemCount(value: unknown): number | undefined {
     if (d && typeof d === 'object' && Array.isArray(d.results)) return d.results.length;
   }
   return undefined;
+}
+
+/** True when a paginated entry stopped short of the backend's full collection. */
+function isTruncated(value: unknown): boolean {
+  return !!value && typeof value === 'object' && (value as Record<string, unknown>).truncated === true;
 }
 
 /**
@@ -82,7 +110,9 @@ export function summarizeUiResult(tool: string, data: Record<string, unknown>): 
   const parts = Object.entries(data).map(([name, value]) => {
     if (value === null || value === undefined) return `${name}: unavailable`;
     const count = itemCount(value);
-    return count !== undefined ? `${name}: ${count} items` : `${name}: 1 result`;
+    if (count === undefined) return `${name}: 1 result`;
+    // Flag a capped collection so the model doesn't report it as the total.
+    return `${name}: ${count} items${isTruncated(value) ? ' (capped, more available)' : ''}`;
   });
   return parts.length > 0
     ? `Rendered ${tool} (${parts.join(', ')}). The interactive view shows the details.`

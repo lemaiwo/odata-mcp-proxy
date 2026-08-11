@@ -153,6 +153,37 @@ export interface UiInputDefinition {
   required?: boolean;
   /** Human-readable description for the LLM. */
   description?: string;
+  /**
+   * Value used when the caller omits the parameter. Must match `type`.
+   * Applied during schema parsing, so `{placeholder}` substitution always
+   * sees a value. Mutually exclusive with `required`.
+   */
+  default?: string | number | boolean;
+  /** Inclusive lower bound. Numbers only. */
+  min?: number;
+  /** Inclusive upper bound. Numbers only. */
+  max?: number;
+}
+
+/**
+ * Pagination for a UI data source: the runtime repeats the request until the
+ * backend runs out of items, `maxItems` is reached, or a short page arrives.
+ */
+export interface UiPaginationDefinition {
+  /**
+   * How the next page is requested, via the `{$offset}` placeholder:
+   *   - `offset`  — 1-based (SCIM `startIndex`)
+   *   - `skiptop` — 0-based (OData `$skip`)
+   */
+  strategy: 'offset' | 'skiptop';
+  /** Items requested per page, available as `{$pageSize}` (default: 100). */
+  pageSize?: number;
+  /** Hard cap on accumulated items (default: 1000). */
+  maxItems?: number;
+  /** Dotted path to the item array in the response (default: auto-detected). */
+  itemsPath?: string;
+  /** Dotted path to the total-count field, when the API reports one. */
+  totalPath?: string;
 }
 
 /**
@@ -165,7 +196,8 @@ export interface UiDataSourceDefinition {
   /**
    * Request path (relative to the API's pathPrefix, may include a query
    * string). `{param}` placeholders are substituted with URL-encoded values
-   * from the tool arguments.
+   * from the tool arguments; `{$...}` placeholders expand to built-in
+   * date/pagination values (see `substitutePlaceholders`).
    */
   path: string;
   /**
@@ -173,6 +205,14 @@ export interface UiDataSourceDefinition {
    * whole tool call (default: false).
    */
   optional?: boolean;
+  /** Fetch every page instead of just the first one. */
+  paginate?: UiPaginationDefinition;
+  /**
+   * Dotted field paths to keep from each item, e.g. `["guid", "meta.created"]`.
+   * Trims the payload before it is baked into the template and returned as
+   * `structuredContent`. Omit to keep the raw response.
+   */
+  select?: string[];
 }
 
 /**
