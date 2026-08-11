@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hello view</title>
+  <style>/*__STYLE__*/</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const DATA = "__DATA__";
+    if (DATA) {
+      document.getElementById('app').textContent = 'Hello ' + (DATA.params.who ?? 'world');
+    }
+  </script>
+</body>
+</html>

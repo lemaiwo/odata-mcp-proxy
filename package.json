@@ -1,9 +1,18 @@
 {
   "name": "odata-mcp-proxy",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Config-driven MCP proxy that exposes OData and REST APIs as MCP tools",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "odata-mcp-proxy": "dist/cli.js"
   },
@@ -17,12 +26,14 @@
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/destination-local.test.ts test/e2e-stdio.test.ts",
     "inspect": "npx @modelcontextprotocol/inspector",
     "inspect:http": "npx @modelcontextprotocol/inspector --cli http://localhost:4004/mcp",
     "build:btp": "mbt build",
     "deploy:btp": "cf deploy mta_archives/odata-mcp-proxy_1.0.0.mtar"
   },
   "dependencies": {
+    "@mcp-ui/server": "^6.1.0",
     "@modelcontextprotocol/sdk": "^1.17.1",
     "@sap-cloud-sdk/connectivity": "^4.0.0",
     "@sap-cloud-sdk/http-client": "^4.0.0",

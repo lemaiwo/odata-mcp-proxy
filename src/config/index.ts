@@ -141,6 +141,67 @@ export interface ApiDefinition {
   csrfProtected?: boolean;
 }
 
+// ─── UI View Definitions (mcp-ui) ───────────────────────────────────────────
+
+/**
+ * One input parameter of a UI view tool. Compiled into the tool's Zod input
+ * schema and available for `{placeholder}` substitution in data source paths.
+ */
+export interface UiInputDefinition {
+  type: 'string' | 'number' | 'boolean';
+  /** Whether the parameter is mandatory (default: false). */
+  required?: boolean;
+  /** Human-readable description for the LLM. */
+  description?: string;
+}
+
+/**
+ * One named data source of a UI view. Fetched via the shared ODataClient of
+ * the referenced API when the view's tool is invoked.
+ */
+export interface UiDataSourceDefinition {
+  /** Name of an API from the `apis` array (its `name` field). */
+  api: string;
+  /**
+   * Request path (relative to the API's pathPrefix, may include a query
+   * string). `{param}` placeholders are substituted with URL-encoded values
+   * from the tool arguments.
+   */
+  path: string;
+  /**
+   * When true, a fetch failure resolves to `null` instead of failing the
+   * whole tool call (default: false).
+   */
+  optional?: boolean;
+}
+
+/**
+ * A config-driven interactive UI view: an MCP tool that fetches data through
+ * the shared OData clients and returns an HTML template (mcp-ui embedded
+ * resource) with the data baked in.
+ */
+export interface UiViewDefinition {
+  /** MCP tool name (e.g. "UI_SubaccountsOverview"). */
+  tool: string;
+  /** Tool description for the LLM. */
+  description: string;
+  /** The ui:// resource URI the template is registered under. */
+  uri: string;
+  /** HTML template file path, relative to the API config file. */
+  template: string;
+  /** Tool input parameters (compiled to a Zod schema). */
+  inputs?: Record<string, UiInputDefinition>;
+  /** Named data sources fetched concurrently on tool invocation. */
+  data?: Record<string, UiDataSourceDefinition>;
+  /**
+   * Literal token -> file map. Each file (path relative to the config file)
+   * is inlined into the template before data injection.
+   */
+  partials?: Record<string, string>;
+  /** Override for the mcp-ui preferred frame size (default: ["100%", "760px"]). */
+  frameSize?: [string, string];
+}
+
 /**
  * Shape of the static API configuration loaded from api-config.json.
  */
@@ -152,6 +213,8 @@ export interface ApiConfig {
   };
   /** One entry per backend API. Each has its own destination, path prefix, and entity sets. */
   apis: ApiDefinition[];
+  /** Optional interactive UI views rendered via mcp-ui templates. */
+  ui?: UiViewDefinition[];
 }
 
 /**
@@ -166,7 +229,7 @@ export interface ApiConfig {
  * config file in their project root (like the SAP approuter pattern),
  * while still falling back to the bundled defaults.
  */
-function loadApiConfig(filename: string): ApiConfig {
+function findApiConfigFile(filename: string): string {
   const candidates: string[] = [];
 
   if (isAbsolute(filename)) {
@@ -188,7 +251,7 @@ function loadApiConfig(filename: string): ApiConfig {
     );
   }
 
-  return JSON.parse(readFileSync(found, 'utf-8')) as ApiConfig;
+  return found;
 }
 
 // ─── Scope-aware Operation Definition ───────────────────────────────────────
@@ -223,7 +286,16 @@ export function resolveOperation(op: OperationDefinition | undefined): {
 
 
 /**
+ * Absolute path of the resolved API config file.
+ * Relative paths in the config (UI templates, partials) resolve against its directory.
+ */
+export const apiConfigPath: string = findApiConfigFile(config.apiConfigFile);
+
+/** Directory of the resolved API config file. */
+export const apiConfigDir: string = dirname(apiConfigPath);
+
+/**
  * API configuration — server identity and all API definitions.
  * Loaded from the file specified by `API_CONFIG_FILE` (default: api-config.json).
  */
-export const apiConfig: ApiConfig = loadApiConfig(config.apiConfigFile);
+export const apiConfig: ApiConfig = JSON.parse(readFileSync(apiConfigPath, 'utf-8')) as ApiConfig;

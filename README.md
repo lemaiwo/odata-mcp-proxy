@@ -281,6 +281,104 @@ mbt build && cf deploy mta_archives/my-mcp-server_1.0.0.mtar
 
 ---
 
+## Interactive UI Views (mcp-ui)
+
+Beyond plain data tools, the config file can declare **interactive UI views**: read-only MCP tools that fetch data through the shared OData clients and return a self-contained HTML page as an [mcp-ui](https://mcpui.dev) embedded resource (with the MCP Apps adapter enabled, so the same widget works on MCP Apps hosts like Claude and on classic mcp-ui hosts).
+
+Add a top-level `ui` array to your API config:
+
+```json
+{
+  "server": { "name": "my-mcp-server", "version": "1.0.0", "description": "..." },
+  "apis": [ ... ],
+  "ui": [
+    {
+      "tool": "UI_SubaccountsOverview",
+      "description": "Interactive overview of all subaccounts",
+      "uri": "ui://my-server/subaccounts-overview",
+      "template": "ui/subaccounts-overview.html",
+      "inputs": {
+        "subaccountGUID": { "type": "string", "required": true, "description": "GUID of the subaccount" }
+      },
+      "data": {
+        "subaccounts": { "api": "cis-accounts", "path": "subaccounts" },
+        "assignments": { "api": "cis-entitlements", "path": "assignments?subaccountGUID={subaccountGUID}", "optional": true }
+      },
+      "partials": {
+        "/*__SHARED_CSS__*/": "ui/_shared.css",
+        "/*__SHARED_JS__*/": "ui/_shared.js"
+      },
+      "frameSize": ["100%", "760px"]
+    }
+  ]
+}
+```
+
+Per entry:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `tool` | yes | MCP tool name. Registered read-only (`annotations.readOnlyHint: true`) with `_meta["ui/resourceUri"]` pointing at `uri`. |
+| `description` | yes | Tool description for the LLM. |
+| `uri` | yes | `ui://` resource URI. The template is also registered as an MCP resource at this URI (with `null` data), so MCP Apps hosts that pre-fetch templates can use render-data delivery. |
+| `template` | yes | HTML template file, path relative to the config file. File reads are cached. |
+| `inputs` | no | Tool parameters: `{ "name": { "type": "string"\|"number"\|"boolean", "required": bool, "description": "..." } }`. Compiled into the tool's input schema. |
+| `data` | no | Named data sources, fetched **concurrently** on invocation through the shared OData client of the referenced `api` (the caller's JWT is forwarded, exactly like the generated entity tools). `{param}` placeholders in `path` are substituted with URL-encoded values from the tool arguments. `"optional": true` entries fail soft to `null`; a failure in any other entry returns an `isError` tool result. |
+| `partials` | no | Literal token → file map. Each file (path relative to the config file) is inlined into the template *before* data injection — useful for shared CSS/JS. |
+| `frameSize` | no | Overrides the mcp-ui `preferred-frame-size` (default `["100%", "760px"]`). |
+
+**Templates** are full, self-contained HTML/JS pages. The server replaces the token `"__DATA__"` with the JSON payload:
+
+```html
+<script>
+  const DATA = "__DATA__"; // becomes { view, params, data: { subaccounts: [...], ... } } — or null in the ui:// template resource
+</script>
+```
+
+`<` is escaped as `\u003c` in the JSON, so user-controlled strings can never close the script tag. Aggregation and reshaping are the template's job — the server side stays declarative (there is deliberately no templating language or server-side aggregation DSL).
+
+The tool result contains a short text summary (tool name + item counts per data entry), the rendered page as an embedded `ui://` resource, and the payload as `structuredContent` for hosts using render-data delivery.
+
+The UI machinery (and its `@mcp-ui/server` dependency) is loaded lazily — configs without a `ui` section skip it entirely.
+
+---
+
+## Programmatic API
+
+The package root exports a `start()` function, so you can embed the server in your own entry point instead of using the CLI:
+
+```js
+// server.mjs
+import { start } from 'odata-mcp-proxy';
+
+await start(); // identical to running `odata-mcp-proxy`
+```
+
+To register extra tools or resources on every MCP session, pass `registerExtras`. It runs inside the per-session factory, after the generated entity tools, API doc resources, and config-driven UI views:
+
+```js
+import { start } from 'odata-mcp-proxy';
+
+await start({
+  registerExtras(server, ctx) {
+    // server: the session's McpServer
+    // ctx.clientsByApi: shared ODataClient instances keyed by API name
+    // ctx.apiConfig:    the loaded API config file
+    // ctx.config:       the environment-derived app config
+    server.registerTool('My_CustomTool', { description: '...', inputSchema: {} }, async (args, extra) => {
+      const result = await ctx.clientsByApi['my-api'].execute('GET', 'Products', undefined, undefined, extra.authInfo?.token);
+      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    });
+  },
+});
+```
+
+`ODataClient`, `resolveDestination`, `createMcpServer`, `registerAllTools`, `registerApiDocResources`, and the config types are re-exported from the package root as well.
+
+**Migration note:** if you previously forked the bootstrap (copying the transport/session wiring and deep-importing from `odata-mcp-proxy/dist/...` to add your own tools), you can delete that entry point: call `start({ registerExtras })` for custom tools, and move interactive views into the config's `ui` section. Deep `dist/` imports keep working via the package's `exports` map, but the root export is the supported surface.
+
+---
+
 ## BTP Deployment (Standalone)
 
 When working with the source repository directly (not as an npm dependency), the project includes its own `mta.yaml` for deployment to SAP BTP Cloud Foundry. The MTA provisions the required service instances (Destination, Connectivity, XSUAA) and deploys the server as a Node.js application using HTTP transport.

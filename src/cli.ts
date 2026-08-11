@@ -14,4 +14,6 @@ if (configIdx !== -1 && args[configIdx + 1]) {
   process.env.API_CONFIG_FILE = args[configIdx + 1];
 }
 
-await import('./index.js');
+// Import lazily so --config takes effect before the config module loads.
+const { start } = await import('./index.js');
+await start();

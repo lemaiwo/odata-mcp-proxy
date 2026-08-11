@@ -1,0 +1,22 @@
+{
+  "server": {
+    "name": "ui-e2e",
+    "version": "0.0.1",
+    "description": "Stub config for the stdio end-to-end test"
+  },
+  "apis": [],
+  "ui": [
+    {
+      "tool": "UI_Hello",
+      "description": "Interactive hello view",
+      "uri": "ui://ui-e2e/hello",
+      "template": "ui/hello.html",
+      "inputs": {
+        "who": { "type": "string", "required": true, "description": "Who to greet" }
+      },
+      "partials": {
+        "/*__STYLE__*/": "ui/style.css"
+      }
+    }
+  ]
+}
