@@ -51,7 +51,11 @@ export { resolveDestination } from './client/destination-service.js';
 export { createMcpServer } from './server/mcp-server.js';
 export { registerAllTools } from './tools/registry.js';
 export { registerApiDocResources } from './resources/index.js';
-export type { Config, ApiConfig, ApiDefinition, UiViewDefinition, UiInputDefinition, UiDataSourceDefinition } from './config/index.js';
+export type {
+  Config, ApiConfig, ApiDefinition,
+  UiViewDefinition, UiInputDefinition, UiDataSourceDefinition, UiPaginationDefinition,
+  DiscoveryDefinition,
+} from './config/index.js';
 export type { EntitySetDefinition } from './tools/registry.js';
 
 /**
@@ -120,6 +124,61 @@ export async function start(options: StartOptions = {}): Promise<void> {
     ? (await import('./ui/register.js')).registerUiTools
     : undefined;
 
+  // ── Progressive discovery (opt-in) ──────────────────────────────────────────
+  //
+  // Without a `discovery` block every entity operation stays its own tool.
+  // With one, the entity tools collapse into two meta-tools; `hybrid` keeps
+  // the named entity sets registered so hot paths skip the discovery hop.
+  const discovery = apiConfig.discovery;
+  type DiscoveryModule = typeof import('./tools/discovery.js');
+  let discoverySetup:
+    | {
+        index: ReturnType<DiscoveryModule['buildIndex']>;
+        pinned: string[];
+        pinnedSet: Set<string>;
+        register: DiscoveryModule['registerDiscoveryTools'];
+      }
+    | undefined;
+
+  if (discovery) {
+    const { buildIndex, registerDiscoveryTools } = await import('./tools/discovery.js');
+    const index = buildIndex(
+      odataClients.map(({ apiDef, client }) => ({
+        name: apiDef.name,
+        client,
+        entitySets: apiDef.entitySets,
+      })),
+      config.enabledApiCategories,
+    );
+
+    // `alwaysRegister` accepts "EntitySet" or "api:EntitySet".
+    const requested = discovery.mode === 'hybrid' ? (discovery.alwaysRegister ?? []) : [];
+    const pinnedSet = new Set<string>();
+    const unknown: string[] = [];
+    for (const name of requested) {
+      const [left, right] = name.includes(':') ? name.split(':', 2) : [undefined, name];
+      const hit = index.find(
+        (e) => e.definition.entitySet === right && (left === undefined || e.api === left),
+      );
+      if (hit) pinnedSet.add(hit.definition.entitySet);
+      else unknown.push(name);
+    }
+    if (unknown.length > 0) {
+      // Fail loudly at startup rather than silently not pinning.
+      throw new Error(
+        `discovery.alwaysRegister references unknown entity set(s): ${unknown.join(', ')}. ` +
+        `Available: ${index.map((e) => `${e.api}:${e.definition.entitySet}`).join(', ')}`,
+      );
+    }
+
+    discoverySetup = { index, pinned: [...pinnedSet], pinnedSet, register: registerDiscoveryTools };
+    logger.info('Progressive discovery enabled', {
+      mode: discovery.mode,
+      entitySets: index.length,
+      pinned: discoverySetup.pinned,
+    });
+  }
+
   const extrasContext: ExtrasContext = { clientsByApi, apiConfig, config };
 
   // ── 3. Session factory ──────────────────────────────────────────────────────
@@ -135,7 +194,21 @@ export async function start(options: StartOptions = {}): Promise<void> {
     const server = createMcpServer(apiConfig.server.name, apiConfig.server.version);
 
     for (const { apiDef, client } of odataClients) {
-      registerAllTools(server, client, apiDef.entitySets, config.enabledApiCategories);
+      registerAllTools(
+        server,
+        client,
+        apiDef.entitySets,
+        config.enabledApiCategories,
+        discoverySetup?.pinnedSet,
+      );
+    }
+
+    if (discoverySetup && discovery) {
+      discoverySetup.register(server, {
+        discovery,
+        index: discoverySetup.index,
+        pinned: discoverySetup.pinned,
+      });
     }
 
     registerApiDocResources(server, allEntitySets, apiConfig.server.name);

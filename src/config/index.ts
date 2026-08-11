@@ -243,6 +243,44 @@ export interface UiViewDefinition {
 }
 
 /**
+ * Progressive tool discovery.
+ *
+ * Registering every operation of every entity set as its own MCP tool does not
+ * scale: a few dozen entity sets already push the `tools/list` payload past the
+ * 1-5% of context window at which clients should switch to progressive
+ * discovery, and some clients cap tool counts outright.
+ *
+ * When this block is present, entity tools are replaced by two stable
+ * meta-tools — `search_operations` (catalog + inspect, via a `detail`
+ * parameter) and `execute_operation` — plus one `odata://` schema resource per
+ * entity set. Omit the block entirely and registration is unchanged.
+ *
+ * The tool list stays fixed for the process lifetime by design: the
+ * 2026-07-28 spec removed per-connection variation of `tools/list`, and a
+ * changing tool array invalidates the model's prompt cache.
+ */
+export interface DiscoveryDefinition {
+  /**
+   * - `search` — entity tools are replaced entirely by the meta-tools.
+   * - `hybrid` — same, but the entity sets named in `alwaysRegister` keep
+   *   their individual tools so hot paths need no discovery round-trip.
+   */
+  mode: 'search' | 'hybrid';
+  /**
+   * Entity sets (by `entitySet` name, optionally `api:entitySet` to
+   * disambiguate) that keep their generated tools in `hybrid` mode.
+   */
+  alwaysRegister?: string[];
+  /** Maximum matches returned by a `brief` search (default: 25). */
+  maxResults?: number;
+  /**
+   * Maximum matches returned by a `full` search. Kept low because full
+   * schemas are verbose — the point is to narrow first (default: 5).
+   */
+  maxFullResults?: number;
+}
+
+/**
  * Shape of the static API configuration loaded from api-config.json.
  */
 export interface ApiConfig {
@@ -255,6 +293,11 @@ export interface ApiConfig {
   apis: ApiDefinition[];
   /** Optional interactive UI views rendered via mcp-ui templates. */
   ui?: UiViewDefinition[];
+  /**
+   * Optional progressive tool discovery. Omit for one tool per entity
+   * operation (the historic behaviour).
+   */
+  discovery?: DiscoveryDefinition;
 }
 
 /**
