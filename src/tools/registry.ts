@@ -125,8 +125,12 @@ function formatKeyHint(keys: KeyProperty[]): string {
 /**
  * Verify that the user JWT contains the required scope.
  * Throws an error if the scope is missing or the token is invalid.
+ *
+ * Exported so the discovery executor enforces scopes identically rather than
+ * reimplementing them — a second copy would be a security bug waiting to
+ * drift.
  */
-function checkScope(requiredScope: string | undefined, jwt: string | undefined): void {
+export function checkScope(requiredScope: string | undefined, jwt: string | undefined): void {
   if (!requiredScope) return; // no restriction defined, allow all
 
   if (!jwt) {
@@ -240,10 +244,16 @@ export function registerEntityTools(
     );
   }
 
-  if (opUpdate.enabled && keys.length > 0) {
+  // Unlike get/delete, update is NOT gated on keys: REST-style collection
+  // endpoints legitimately accept a keyless PATCH with a body (BTP entitlement
+  // assignments work exactly this way). A keyless get would duplicate list, and
+  // a keyless delete would target the whole collection, so those stay gated.
+  if (opUpdate.enabled) {
     server.tool(
       `${entitySet}_update`,
-      `Update an existing ${description} (PATCH). Provide key(s) in path and properties in body.${keyHint}`,
+      keys.length > 0
+        ? `Update an existing ${description} (PATCH). Provide key(s) in path and properties in body.${keyHint}`
+        : `Update ${description} (PATCH). This is a collection-level update: provide the payload in body, no key in path.`,
       genericToolSchema,
       async (args, extra) => {
         try { checkScope(opUpdate.requiredScope, extra.authInfo?.token); }
@@ -296,6 +306,12 @@ export function registerAllTools(
   client: ODataClient,
   definitions: EntitySetDefinition[],
   enabledCategories: string[],
+  /**
+   * When discovery is active, only entity sets named here keep their
+   * individual tools (hybrid mode). Omit for the historic behaviour of
+   * registering every entity set.
+   */
+  onlyEntitySets?: Set<string>,
 ): void {
   const isAll = enabledCategories.length === 1 && enabledCategories[0] === 'all';
 
@@ -305,6 +321,11 @@ export function registerAllTools(
   for (const def of definitions) {
     if (!isAll && !enabledCategories.includes(def.category)) {
       logger.info(`Skipping tools for ${def.entitySet} (category "${def.category}" not enabled)`);
+      skipped++;
+      continue;
+    }
+
+    if (onlyEntitySets && !onlyEntitySets.has(def.entitySet)) {
       skipped++;
       continue;
     }
