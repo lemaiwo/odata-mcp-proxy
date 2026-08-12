@@ -394,6 +394,64 @@ The UI machinery (and its `@mcp-ui/server` dependency) is loaded lazily — conf
 
 ---
 
+## Progressive Tool Discovery
+
+By default every operation of every entity set becomes its own MCP tool. That is the right thing for a handful of entity sets and the wrong thing at scale: 32 entity sets produce over 100 tools, and the [MCP client best practices](https://modelcontextprotocol.io/docs/2026-07-28/develop/clients/client-best-practices) recommend switching to progressive discovery once tool definitions occupy 1–5% of the context window. Some clients also cap tool counts outright.
+
+Add a top-level `discovery` block and the entity tools collapse into **two stable meta-tools**:
+
+```json
+{
+  "server": { ... },
+  "apis": [ ... ],
+  "discovery": {
+    "mode": "hybrid",
+    "alwaysRegister": ["Subaccounts", "cis-entitlements:Assignments"],
+    "maxResults": 25,
+    "maxFullResults": 5
+  }
+}
+```
+
+**Omit the block and nothing changes** — registration behaves exactly as before.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `mode` | yes | `search` replaces all entity tools with the meta-tools. `hybrid` does the same but keeps `alwaysRegister` entity sets as individual tools. |
+| `alwaysRegister` | no | Entity sets kept as individual tools in `hybrid` mode. Accepts `EntitySet` or `api:EntitySet` to disambiguate. Unknown names fail at startup rather than silently not pinning. |
+| `maxResults` | no | Cap for a `brief` search (default `25`). |
+| `maxFullResults` | no | Cap for a `full` search (default `5`) — full schemas are verbose, so narrow first. |
+
+### The two tools
+
+**`search_operations(query, api?, category?, detail?, limit?)`** — catalog *and* inspect in one call. `detail: "brief"` (default) returns name, category, available operations and description; `detail: "full"` adds keys, navigation/filterable/selectable properties, per-operation method requirements, and concrete `path` examples.
+
+Two levels rather than the more common three-tool `discover → describe → execute` split, for two reasons: the spec's own guidance is to *"offer multiple detail levels"* on the catalog tool, and it saves a round trip when the model already knows what it wants.
+
+An empty or unmatched query returns the whole catalog rather than nothing, with `matched: false` and a `note` saying so — a dead end is worse for the model than a list it can narrow. Search is keyword-based with field weighting (exact name ≫ name prefix ≫ category ≫ description), and splits camelCase so `sub accounts` finds `Subaccounts`. Embeddings were deliberately not used: it would pull a model dependency into a package that has none.
+
+**`execute_operation(api, entitySet, operation, path?, navProperty?, body?, headers?)`** — routes to the same `ODataClient`, method and path construction as the generated tools, including `requiredScope` enforcement (the check is shared, not reimplemented).
+
+Because a generic executor has no per-tool schema to reject bad input, it validates routing itself and every failure names the valid options:
+
+```
+execute_operation({ api: "cis-accounts", entitySet: "Subaccounts", operation: "get" })
+→ Operation "get" on Subaccounts needs a key expression in "path".
+  Keys: subaccountGUID (string). Example path: ('<subaccountGUID>').
+```
+
+Unknown entity sets suggest the API that does have them; unavailable operations list what *is* available and why; `create`/`update` without a body and unknown navigation properties are rejected before the backend is touched.
+
+### Schema resources
+
+Discovery also registers one `odata://{api}/{entitySet}` resource per entity set, returning the same full schema. Hosts that pre-fetch and cache resources can read a schema with no tool round-trip and no context cost until it is read — the 2026-07-28 spec added `ttlMs`/`cacheScope` hints to `resources/read` for exactly this.
+
+### Why the tool list never changes
+
+A tempting alternative is registering concrete tools on demand and firing `notifications/tools/list_changed`. This implementation deliberately does not, for two reasons from the spec: adding or removing tool definitions mid-conversation invalidates the model's prompt cache (the guidance is to *"route every call through a single stable meta-tool so the array never changes"*), and the 2026-07-28 revision removed protocol sessions so that `tools/list` **no longer varies per-connection**. A fixed tool surface is now the conformant design.
+
+Interactive `ui` views are always registered and never hidden behind discovery — they are few, and they are the entry points the model should prefer.
+
 ## Programmatic API
 
 The package root exports a `start()` function, so you can embed the server in your own entry point instead of using the CLI:

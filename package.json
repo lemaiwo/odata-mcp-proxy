@@ -1,6 +1,6 @@
 {
   "name": "odata-mcp-proxy",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Config-driven MCP proxy that exposes OData and REST APIs as MCP tools",
   "type": "module",
   "main": "dist/index.js",
@@ -26,7 +26,7 @@
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/destination-local.test.ts test/e2e-stdio.test.ts",
+    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/discovery.test.ts test/discovery-tools.test.ts test/destination-local.test.ts test/e2e-stdio.test.ts",
     "inspect": "npx @modelcontextprotocol/inspector",
     "inspect:http": "npx @modelcontextprotocol/inspector --cli http://localhost:4004/mcp",
     "build:btp": "mbt build",
