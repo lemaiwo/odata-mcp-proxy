@@ -28,7 +28,7 @@ npm run build:btp    # Build MTA archive
 npm run deploy:btp   # Deploy via CF CLI
 ```
 
-Tests live in `test/` (unit tests for the UI layer and destination fallback, plus a stdio end-to-end test against a stub config in `test/fixtures/`).
+Tests live in `test/` (unit tests for the UI layer, destination fallback and response decoding, plus stdio end-to-end tests against stub configs in `test/fixtures/`; `e2e-binary.test.ts` runs a local HTTP stub standing in for the OAuth endpoint and CPI).
 
 ## Architecture
 

@@ -1,7 +1,65 @@
-import { executeHttpRequest } from '@sap-cloud-sdk/http-client';
+import { executeHttpRequest, type HttpResponse } from '@sap-cloud-sdk/http-client';
 import type { HttpDestinationOrFetchOptions } from '@sap-cloud-sdk/connectivity';
 import { logger } from '../utils/logger.js';
 import { parseODataError } from './odata-error.js';
+
+/**
+ * Response body that is neither JSON nor valid UTF-8 text (e.g. an iflow zip
+ * from `.../$value`), returned base64-encoded so no byte is lost.
+ */
+export interface BinaryResponseBody {
+  contentType: string;
+  encoding: 'base64';
+  size: number;
+  data: string;
+}
+
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+
+function toBuffer(data: unknown): Buffer | undefined {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return undefined;
+}
+
+function contentTypeOf(response: { headers?: Record<string, unknown> }): string {
+  return String(response.headers?.['content-type'] ?? '');
+}
+
+/**
+ * Decode a raw response body by its content: JSON content types are parsed
+ * (falling back to the raw text if parsing fails); any other body is returned
+ * as text when it is valid UTF-8, since content types alone miss text payloads
+ * such as Groovy scripts served as `application/vnd.sap.integration.groovyscript`.
+ * Everything else is returned as a {@link BinaryResponseBody}.
+ */
+export function decodeResponseBody(data: unknown, contentType: string): unknown {
+  const bytes = toBuffer(data);
+  if (!bytes) return data;
+
+  const mediaType = contentType.split(';')[0].trim().toLowerCase();
+  if (mediaType === 'application/json' || mediaType.endsWith('+json')) {
+    const text = bytes.toString('utf8');
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+
+  try {
+    return strictUtf8.decode(bytes);
+  } catch {
+    const envelope: BinaryResponseBody = {
+      contentType: contentType || 'application/octet-stream',
+      encoding: 'base64',
+      size: bytes.length,
+      data: bytes.toString('base64'),
+    };
+    return envelope;
+  }
+}
 
 /**
  * Base OData V2 HTTP client for SAP Cloud Integration APIs.
@@ -25,22 +83,9 @@ export class ODataClient {
    * @param path - Relative path (may include query string), e.g. "IntegrationPackages" or "IntegrationPackages('MyPkg')?$select=Id,Name"
    */
   async get<T>(path: string): Promise<T> {
-    const url = `${this.pathPrefix}/${path}`;
-    logger.debug('OData GET', { url });
-
-    try {
-      const destination = await this.getDestination();
-      const response = await executeHttpRequest(destination, {
-        method: 'GET',
-        url,
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(this.timeout),
-      }, { fetchCsrfToken: false });
-
-      return response.data as T;
-    } catch (error: unknown) {
-      throw this.handleError(error);
-    }
+    logger.debug('OData GET', { url: `${this.pathPrefix}/${path}` });
+    const response = await this.getRaw(path, { Accept: 'application/json' });
+    return decodeResponseBody(response.data, contentTypeOf(response)) as T;
   }
 
   /**
@@ -93,29 +138,14 @@ export class ODataClient {
     const upperMethod = method.toUpperCase();
 
     if (upperMethod === 'GET') {
-      const url = `${this.pathPrefix}/${path}`;
-      logger.debug('OData execute GET', { url });
+      logger.debug('OData execute GET', { url: `${this.pathPrefix}/${path}` });
+      const response = await this.getRaw(path, { Accept: 'application/json', ...extraHeaders }, jwt);
 
-      try {
-        const destination = await this.getDestination(jwt);
-        const response = await executeHttpRequest(destination, {
-          method: 'GET',
-          url,
-          headers: {
-            Accept: 'application/json',
-            ...extraHeaders,
-          },
-          signal: AbortSignal.timeout(this.timeout),
-        }, { fetchCsrfToken: false });
-
-        if (response.status === 204) {
-          return undefined;
-        }
-
-        return response.data;
-      } catch (error: unknown) {
-        throw this.handleError(error);
+      if (response.status === 204) {
+        return undefined;
       }
+
+      return decodeResponseBody(response.data, contentTypeOf(response));
     }
 
     // Mutating request — SDK handles CSRF token automatically
@@ -127,24 +157,34 @@ export class ODataClient {
    * Returns the response as a Buffer with its content type.
    */
   async getBinary(path: string): Promise<{ data: Buffer; contentType: string }> {
-    const url = `${this.pathPrefix}/${path}`;
-    logger.debug('OData GET binary', { url });
+    logger.debug('OData GET binary', { url: `${this.pathPrefix}/${path}` });
+    const response = await this.getRaw(path, {});
 
+    return {
+      data: toBuffer(response.data) ?? Buffer.alloc(0),
+      contentType: contentTypeOf(response) || 'application/octet-stream',
+    };
+  }
+
+  /**
+   * GET without CSRF handling, keeping the response body as raw bytes.
+   * Without `responseType: 'arraybuffer'` axios decodes every body as UTF-8,
+   * irreversibly replacing invalid byte sequences in binary content.
+   */
+  private async getRaw(
+    path: string,
+    headers: Record<string, string>,
+    jwt?: string,
+  ): Promise<HttpResponse> {
     try {
-      const destination = await this.getDestination();
-      const response = await executeHttpRequest(destination, {
+      const destination = await this.getDestination(jwt);
+      return await executeHttpRequest(destination, {
         method: 'GET',
-        url,
+        url: `${this.pathPrefix}/${path}`,
+        headers,
         responseType: 'arraybuffer',
         signal: AbortSignal.timeout(this.timeout),
       }, { fetchCsrfToken: false });
-
-      const contentType = response.headers?.['content-type'] ?? 'application/octet-stream';
-
-      return {
-        data: Buffer.from(response.data as ArrayBuffer),
-        contentType,
-      };
     } catch (error: unknown) {
       throw this.handleError(error);
     }
@@ -180,6 +220,7 @@ export class ODataClient {
         url,
         data,
         headers,
+        responseType: 'arraybuffer',
         signal: AbortSignal.timeout(this.timeout),
       }, this.csrfProtected ? undefined : { fetchCsrfToken: false });
 
@@ -188,7 +229,7 @@ export class ODataClient {
         return undefined as T;
       }
 
-      return response.data as T;
+      return decodeResponseBody(response.data, contentTypeOf(response)) as T;
     } catch (error: unknown) {
       throw this.handleError(error);
     }
@@ -196,11 +237,14 @@ export class ODataClient {
 
   /**
    * Convert SDK/axios errors into ODataApiError for consistent error handling.
+   * Error bodies arrive as raw bytes (all requests use `arraybuffer`), so they
+   * are decoded to text before the OData error is parsed.
    */
   private handleError(error: unknown): unknown {
     const response = (error as { response?: { status?: number; data?: unknown } })?.response;
     if (response?.status) {
-      return parseODataError(response.status, response.data);
+      const bytes = toBuffer(response.data);
+      return parseODataError(response.status, bytes ? bytes.toString('utf8') : response.data);
     }
     return error;
   }

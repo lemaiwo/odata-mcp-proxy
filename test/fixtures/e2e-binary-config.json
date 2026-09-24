@@ -1,0 +1,30 @@
+{
+  "server": {
+    "name": "binary-e2e",
+    "version": "0.0.1",
+    "description": "Stub config for the binary/text response decoding end-to-end test"
+  },
+  "discovery": {
+    "mode": "hybrid",
+    "alwaysRegister": ["IntegrationDesigntimeArtifacts"]
+  },
+  "apis": [
+    {
+      "name": "cpi",
+      "destination": "E2E_BINARY_DEST",
+      "pathPrefix": "/api/v1",
+      "entitySets": [
+        {
+          "entitySet": "IntegrationDesigntimeArtifacts",
+          "description": "Design-time integration artifacts",
+          "category": "integration-content",
+          "keys": [
+            { "name": "Id", "type": "string" },
+            { "name": "Version", "type": "string" }
+          ],
+          "operations": { "list": false, "get": true, "create": true, "update": false, "delete": false }
+        }
+      ]
+    }
+  ]
+}

@@ -620,6 +620,20 @@ All `_list` tools accept standard OData V2 query options:
 - `$top` -- e.g., `10`
 - `$skip` -- e.g., `20`
 
+### Response Bodies
+
+Tool results are decoded from the raw response bytes:
+
+- JSON content types (`application/json`, `*+json`) are returned parsed.
+- Any other body that is valid UTF-8 is returned as text, e.g. a Groovy script from `.../Resources(...)/$value`.
+- Anything else, such as an iflow zip from `IntegrationDesigntimeArtifacts(Id='...',Version='active')/$value`, is returned losslessly as a base64 envelope:
+
+```json
+{ "contentType": "application/zip", "encoding": "base64", "size": 21605, "data": "UEsDBBQACAgI..." }
+```
+
+The `data` value can be passed unchanged as base64 content (e.g. `ArtifactContent`) to a `_create` or `_update` call, which is how an artifact is copied.
+
 ---
 
 ## Transport Modes
