@@ -18,7 +18,7 @@ import { ODataClient } from './client/odata-client.js';
 import { createMcpServer } from './server/mcp-server.js';
 import { registerAllTools } from './tools/registry.js';
 import { registerApiDocResources } from './resources/index.js';
-import { XsuaaAuth } from './auth/xsuaa-auth.js';
+import { createAuthProvider } from './auth/index.js';
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -86,8 +86,14 @@ export async function start(options: StartOptions = {}): Promise<void> {
     client: ODataClient;
   }
 
+  // Inbound auth (HTTP only). Only XSUAA tokens are forwarded to destination
+  // resolution — the BTP Destination Service cannot use tokens from other IdPs.
+  const auth = config.mcpTransport === 'http' ? createAuthProvider(config) : undefined;
+  const forwardUserToken = auth?.forwardsUserToken ?? false;
+
   const odataClients: ODataClientEntry[] = apiConfig.apis.map((apiDef) => {
-    const getDestination = (jwt?: string) => resolveDestination(apiDef.destination, jwt);
+    const getDestination = (jwt?: string) =>
+      resolveDestination(apiDef.destination, forwardUserToken ? jwt : undefined);
 
     const client = new ODataClient(
       getDestination,
@@ -222,7 +228,7 @@ export async function start(options: StartOptions = {}): Promise<void> {
 
   // ── 4. Start the chosen transport ───────────────────────────────────────────
 
-  if (config.mcpTransport === 'http') {
+  if (config.mcpTransport === 'http' && auth) {
     // ------------------------------------------------------------------------
     // HTTP transport — Streamable HTTP over Express
     // ------------------------------------------------------------------------
@@ -233,7 +239,6 @@ export async function start(options: StartOptions = {}): Promise<void> {
       './server/http.js'
     );
 
-    const auth = new XsuaaAuth();
     const app = createHttpServer(config.port, auth);
 
     // Map of active sessions (sessionId -> transport + server) for stateful mode.

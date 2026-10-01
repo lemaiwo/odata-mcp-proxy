@@ -28,7 +28,7 @@ npm run build:btp    # Build MTA archive
 npm run deploy:btp   # Deploy via CF CLI
 ```
 
-Tests live in `test/` (unit tests for the UI layer and destination fallback, plus a stdio end-to-end test against a stub config in `test/fixtures/`).
+Tests live in `test/` (unit tests for the UI layer, destination fallback and OIDC auth, plus a stdio end-to-end test against a stub config in `test/fixtures/`).
 
 ## Architecture
 
@@ -49,8 +49,8 @@ AI Assistant → MCP Protocol → McpServer (tool registry) → ODataClient → 
 2. Tool handler in `src/tools/registry.ts` constructs an OData request
 3. `ODataClient` (`src/client/odata-client.ts`) resolves the destination and executes the HTTP request via SAP Cloud SDK
 4. `resolveDestination()` (`src/client/destination-service.ts`) returns credentials:
-   - **BTP mode**: Uses `@sap-cloud-sdk/connectivity` with bound VCAP_SERVICES
-   - **Local mode**: Uses env vars (`SAP_CPI_BASE_URL`, `SAP_CPI_CLIENT_ID`, `SAP_CPI_CLIENT_SECRET`, `SAP_CPI_TOKEN_URL`) for direct OAuth2
+   - **BTP mode**: Uses `@sap-cloud-sdk/connectivity` when a `destination` service is bound in VCAP_SERVICES
+   - **Local mode** (no destination binding, e.g. self-hosted with XSUAA-only or OIDC SSO): Uses env vars (`SAP_CPI_BASE_URL`, `SAP_CPI_CLIENT_ID`, `SAP_CPI_CLIENT_SECRET`, `SAP_CPI_TOKEN_URL`) for direct OAuth2
 
 ### Tool Registration Pattern
 
@@ -72,6 +72,7 @@ API categories (can be filtered via `ENABLED_API_CATEGORIES` env var):
 | `src/cli.ts` | CLI entry point (`--config` flag, then calls `start()`) |
 | `src/server/mcp-server.ts` | MCP server factory |
 | `src/server/http.ts` | Express HTTP server and session management |
+| `src/auth/` | Inbound auth providers behind the `AuthProvider` interface: XSUAA (`xsuaa-auth.ts`) and generic OIDC (`oidc-auth.ts`); `createAuthProvider()` picks one from config |
 | `src/client/odata-client.ts` | OData HTTP client (GET/POST/PATCH/DELETE, binary downloads) |
 | `src/client/destination-service.ts` | Credential resolution (BTP vs local) |
 | `src/client/retry.ts` | Exponential backoff retry logic |
@@ -96,6 +97,8 @@ Config is Zod-validated at startup; the server exits immediately on invalid conf
 | `REQUEST_TIMEOUT` | `60000` | ms |
 | `ENABLED_API_CATEGORIES` | all | Comma-separated category filter |
 | `API_CONFIG_FILE` | `api-config.json` | Config file name (relative to `src/config/`) or absolute path; also accepts `btp-admin-api-config.json` |
+| `AUTH_PROVIDER` | `auto` | Inbound auth for HTTP: `auto` (OIDC if `OIDC_ISSUER` set, else XSUAA), `oidc`, `xsuaa`, `none` |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | — | Required for the OIDC provider; also `OIDC_SCOPES`, `OIDC_AUDIENCE`, `OIDC_TOKEN_AUTH_METHOD` (see `docs/SSO.md`) |
 
 #### Selecting and adding API config files
 
@@ -138,7 +141,7 @@ Programmatic consumers import `start(options?)` from the package root; `options.
 
 #### Local development credentials
 
-When `VCAP_SERVICES` is absent, credentials are read from env vars. The prefix is derived from the `destination` field: uppercase it and replace non-alphanumeric characters with `_`.
+When no `destination` service is bound in `VCAP_SERVICES`, credentials are read from env vars. The prefix is derived from the `destination` field: uppercase it and replace non-alphanumeric characters with `_`.
 
 Example — destination `"CPI_DESTINATION"` → prefix `CPI_DESTINATION`:
 

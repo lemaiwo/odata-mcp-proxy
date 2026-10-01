@@ -212,10 +212,12 @@ PORT=4005
 
 ### "Failed to resolve destination" with VCAP_SERVICES present
 
-If you have a `default-env.json` or `VCAP_SERVICES` environment variable set
-from a previous BTP deployment test, the server will try to use the BTP
-Destination Service instead of the local fallback. Remove or rename the
-`default-env.json` file to force the local OAuth2 flow.
+If your `default-env.json` or `VCAP_SERVICES` contains a `destination` service
+binding (e.g. from a previous BTP deployment test), the server uses the BTP
+Destination Service instead of the local fallback. Remove the `destination`
+entry (an `xsuaa`-only binding is fine) to force the local OAuth2 flow.
+
+To protect a locally or self-hosted HTTP server with SSO, see [SSO.md](SSO.md).
 
 ### Timeout errors on OData requests
 

@@ -499,6 +499,19 @@ npm run deploy:btp   # Deploy to Cloud Foundry
 
 For detailed deployment instructions, destination configuration, and XSUAA setup, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+## Self-Hosted Deployment with SSO
+
+BTP is optional. The server runs on any Node.js host in HTTP mode, with single sign-on via any OpenID Connect provider (Entra ID, Okta, Keycloak, SAP IAS, …) or via XSUAA from outside BTP:
+
+```bash
+OIDC_ISSUER=https://login.microsoftonline.com/<tenant-id>/v2.0 \
+OIDC_CLIENT_ID=<client-id> OIDC_CLIENT_SECRET=<secret> \
+OIDC_SCOPES="openid profile offline_access api://<client-id>/access_as_user" \
+npm start
+```
+
+See [docs/SSO.md](docs/SSO.md) for per-IdP setup, scope/role mapping, and production notes.
+
 ---
 
 ## Configuration
@@ -513,6 +526,11 @@ All configuration is managed through environment variables. The server validates
 | `LOG_LEVEL` | No | `info` | Logging level: `error`, `warn`, `info`, `debug` |
 | `REQUEST_TIMEOUT` | No | `60000` | HTTP request timeout in milliseconds |
 | `ENABLED_API_CATEGORIES` | No | `all` | Comma-separated list of API categories to enable (see below) |
+| `AUTH_PROVIDER` | No | `auto` | Inbound auth for HTTP: `auto`, `oidc`, `xsuaa`, `none` (see [docs/SSO.md](docs/SSO.md)) |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | With `oidc` | -- | OpenID Connect provider and client |
+| `OIDC_SCOPES` | No | `openid profile email offline_access` | Scopes requested at login |
+| `OIDC_AUDIENCE` | No | client ID | Accepted access-token audiences (comma-separated) |
+| `OIDC_TOKEN_AUTH_METHOD` | No | `client_secret_post` | `client_secret_post` or `client_secret_basic` |
 
 ### API Categories
 

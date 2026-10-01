@@ -41,6 +41,28 @@ const configSchema = z.object({
     .default(60000),
 
   apiConfigFile: z.string().default('api-config.json'),
+
+  // ── Inbound auth (HTTP transport) ──────────────────────────────────────────
+  // auto: OIDC when OIDC_ISSUER is set, otherwise XSUAA (active only when bound).
+  authProvider: z.enum(["auto", "xsuaa", "oidc", "none"]).default("auto"),
+  oidcIssuer: z.string().url().optional(),
+  oidcClientId: z.string().min(1).optional(),
+  oidcClientSecret: z.string().min(1).optional(),
+  oidcScopes: z.string().default("openid profile email offline_access"),
+  oidcAudience: z.string().optional(),
+  oidcTokenAuthMethod: z.enum(["client_secret_post", "client_secret_basic"]).default("client_secret_post"),
+}).superRefine((cfg, ctx) => {
+  const wantsOidc = cfg.authProvider === "oidc" || (cfg.authProvider === "auto" && cfg.oidcIssuer);
+  if (!wantsOidc) return;
+  for (const key of ["oidcIssuer", "oidcClientId", "oidcClientSecret"] as const) {
+    if (!cfg[key]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: "required when the OIDC auth provider is used",
+      });
+    }
+  }
 });
 
 /** Inferred type from the raw Zod schema (enabledApiCategories is still a string). */
@@ -88,6 +110,13 @@ export function loadConfig(): Config {
     enabledApiCategories: process.env.ENABLED_API_CATEGORIES,
     requestTimeout: process.env.REQUEST_TIMEOUT,
     apiConfigFile: process.env.API_CONFIG_FILE,
+    authProvider: process.env.AUTH_PROVIDER || undefined,
+    oidcIssuer: process.env.OIDC_ISSUER || undefined,
+    oidcClientId: process.env.OIDC_CLIENT_ID || undefined,
+    oidcClientSecret: process.env.OIDC_CLIENT_SECRET || undefined,
+    oidcScopes: process.env.OIDC_SCOPES || undefined,
+    oidcAudience: process.env.OIDC_AUDIENCE || undefined,
+    oidcTokenAuthMethod: process.env.OIDC_TOKEN_AUTH_METHOD || undefined,
   };
 
   const result = configSchema.safeParse(rawInput);

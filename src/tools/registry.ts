@@ -4,6 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ODataClient } from '../client/odata-client.js';
 import { type OperationDefinition, resolveOperation } from '../config/index.js';
 import { logger } from '../utils/logger.js';
+import { extractScopes } from '../auth/scopes.js';
 
 // ─── Tool Definition Types ───────────────────────────────────────────────────
 
@@ -141,7 +142,8 @@ export function checkScope(requiredScope: string | undefined, jwt: string | unde
     const payload = JSON.parse(
       Buffer.from(jwt.split('.')[1], 'base64url').toString('utf-8')
     );
-    const scopes: string[] = payload.scope ?? [];
+    // XSUAA `scope` array, OIDC `scope`/`scp` strings and Entra `roles`.
+    const scopes = extractScopes(payload);
 
     // Accept both "appname.scopename" (XSUAA format) and bare "scopename"
     const hasScope =

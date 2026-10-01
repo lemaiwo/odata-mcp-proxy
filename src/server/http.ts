@@ -3,14 +3,14 @@
 //
 // Creates and configures an Express application with:
 //   - JSON body parser + CORS
-//   - Optional XSUAA JWT validation middleware
+//   - JWT validation middleware (XSUAA or generic OIDC, see src/auth/)
 //   - Request logging
 //   - Health check
-//   - OAuth2 endpoints (when XSUAA is configured):
+//   - OAuth2 endpoints (when an auth provider is configured):
 //       GET  /.well-known/oauth-authorization-server  RFC 8414 discovery
 //       GET  /.well-known/oauth-protected-resource    RFC 9728 protected-resource metadata
 //       GET  /oauth/authorize                          Start OAuth flow
-//       GET  /oauth/callback                           XSUAA → client redirect
+//       GET  /oauth/callback                           IdP → client redirect
 //       GET  /oauth/token                              Token endpoint (GET form)
 //       POST /oauth/token                              Token endpoint (POST)
 //       POST /oauth/refresh                            Refresh token endpoint
@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import { logger } from '../utils/logger.js';
-import { type XsuaaAuth } from '../auth/xsuaa-auth.js';
+import type { AuthProvider } from '../auth/types.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,10 +60,10 @@ function purgeStaleMcpStates(): void {
  * Creates an Express application pre-configured with middleware and OAuth endpoints.
  *
  * @param port - TCP port (used only for log context during setup)
- * @param auth - XsuaaAuth instance; OAuth endpoints are registered only when
+ * @param auth - Auth provider; OAuth endpoints are registered only when
  *               `auth.isConfigured()` returns true.
  */
-export function createHttpServer(port: number, auth: XsuaaAuth): Express {
+export function createHttpServer(port: number, auth: AuthProvider): Express {
   const app = express();
 
   // ---------------------------------------------------------------------------
@@ -96,11 +96,11 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
   );
 
   // ---------------------------------------------------------------------------
-  // JWT extraction / optional XSUAA validation
+  // JWT validation
   //
-  // Attaches req.auth (for the MCP SDK) and req.jwtToken when a valid Bearer
-  // token is present. When XSUAA is configured the token is validated; invalid
-  // tokens are silently dropped so local / stdio development still works.
+  // When an auth provider is configured, a valid Bearer token is required and
+  // attached as req.auth (for the MCP SDK) and req.jwtToken. Without one the
+  // middleware is a no-op so local development still works.
   // ---------------------------------------------------------------------------
   app.use('/mcp', auth.requireAuth() as unknown as (req: Request, res: Response, next: NextFunction) => void);
 
@@ -130,14 +130,15 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
       timestamp: new Date().toISOString(),
       version: '1.0.0',
       oauth: auth.isConfigured(),
+      authProvider: auth.kind,
     });
   });
 
   // ---------------------------------------------------------------------------
-  // OAuth endpoints — only wired when XSUAA service is bound
+  // OAuth endpoints — only wired when an auth provider is configured
   // ---------------------------------------------------------------------------
   if (auth.isConfigured()) {
-    logger.info('XSUAA configured — OAuth endpoints enabled');
+    logger.info('OAuth endpoints enabled', { authProvider: auth.kind });
 
     // ── RFC 8414 Authorization Server Metadata ───────────────────────────────
     app.get(
@@ -170,8 +171,8 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
     // ── Start OAuth flow ─────────────────────────────────────────────────────
     // MCP Inspector calls this with redirect_uri pointing back to itself.
     // We store the mapping (state → mcpRedirectUri) and forward the request
-    // to XSUAA using OUR /oauth/callback as the redirect URI.
-    app.get('/oauth/authorize', (req: Request, res: Response) => {
+    // to the IdP using OUR /oauth/callback as the redirect URI.
+    app.get('/oauth/authorize', async (req: Request, res: Response) => {
       try {
         const state = (req.query['state'] as string | undefined) ?? randomUUID();
         const mcpRedirectUri = req.query['redirect_uri'] as string | undefined;
@@ -193,8 +194,8 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
           timestamp: Date.now(),
         });
 
-        const authUrl = auth.getAuthorizationUrl(state, baseUrl);
-        logger.debug('OAuth authorize — redirecting to XSUAA', { state, mcpRedirectUri });
+        const authUrl = await auth.getAuthorizationUrl(state, baseUrl);
+        logger.debug('OAuth authorize — redirecting to IdP', { state, mcpRedirectUri });
         res.redirect(authUrl);
       } catch (err) {
         logger.error('OAuth authorize failed', { error: String(err) });
@@ -202,8 +203,8 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
       }
     });
 
-    // ── XSUAA callback ───────────────────────────────────────────────────────
-    // XSUAA redirects here after the user authenticates.
+    // ── IdP callback ─────────────────────────────────────────────────────────
+    // The IdP redirects here after the user authenticates.
     // We look up the original MCP Inspector redirect URI by state and forward.
     app.get('/oauth/callback', (req: Request, res: Response) => {
       try {
@@ -213,7 +214,7 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
 
         if (error) {
           const description = (req.query['error_description'] as string | undefined) ?? error;
-          logger.warn('OAuth callback received error from XSUAA', { error, description });
+          logger.warn('OAuth callback received error from IdP', { error, description });
           res.status(400).send(errorPage('Authentication Failed', description));
           return;
         }
@@ -311,7 +312,7 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
     });
 
     // ── Dynamic client registration (RFC 7591) ───────────────────────────────
-    // Returns pre-configured XSUAA client credentials so MCP clients can
+    // Returns the pre-configured IdP client credentials so MCP clients can
     // auto-register without a real per-client provisioning flow.
     //
     // We echo back the client's submitted `redirect_uris` and `client_name`.
@@ -337,8 +338,8 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
         typeof body['client_name'] === 'string' ? (body['client_name'] as string) : undefined;
 
       res.json({
-        client_id: creds.clientid,
-        client_secret: creds.clientsecret,
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
         client_id_issued_at: Math.floor(Date.now() / 1000),
         client_secret_expires_at: 0,
         redirect_uris: requestedRedirectUris ?? [`${baseUrl}/oauth/callback`],
@@ -347,11 +348,7 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
         token_endpoint_auth_method: 'client_secret_basic',
         client_name: requestedClientName ?? 'OData MCP Proxy',
         registration_client_uri: `${baseUrl}/oauth/client-registration`,
-        'x-xsuaa-metadata': {
-          url: creds.url,
-          identityzone: creds.identityzone,
-          uaadomain: creds.uaadomain ?? creds.url.replace(/^https?:\/\//, ''),
-        },
+        ...auth.getRegistrationExtras(),
       });
     });
 
@@ -365,7 +362,7 @@ export function createHttpServer(port: number, auth: XsuaaAuth): Express {
       });
     });
   } else {
-    logger.info('XSUAA not configured — OAuth endpoints disabled');
+    logger.info('No auth provider configured — OAuth endpoints disabled');
   }
 
   // ---------------------------------------------------------------------------

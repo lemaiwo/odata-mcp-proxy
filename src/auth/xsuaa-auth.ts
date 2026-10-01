@@ -14,6 +14,9 @@
 import xsenv from '@sap/xsenv';
 import { type Request, type Response, type NextFunction } from 'express';
 import { logger } from '../utils/logger.js';
+import type { AuthProvider, AuthRequest, StaticClientCredentials } from './types.js';
+
+export type { AuthRequest } from './types.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,18 +40,11 @@ export interface SecurityContext {
   checkScope(scope: string): boolean;
 }
 
-/**
- * Extended Express Request that carries the validated JWT token string.
- * Set by `optionalAuth()` when a valid Bearer token is provided.
- */
-export interface AuthRequest extends Request {
-  /** Raw JWT string extracted (and optionally validated) from the Bearer header. */
-  jwtToken?: string;
-}
-
 // ── Service ──────────────────────────────────────────────────────────────────
 
-export class XsuaaAuth {
+export class XsuaaAuth implements AuthProvider {
+  readonly kind = 'xsuaa' as const;
+  readonly forwardsUserToken = true;
   private credentials: XsuaaCredentials | null = null;
 
   constructor() {
@@ -76,7 +72,7 @@ export class XsuaaAuth {
    * @param state  - Opaque value used to correlate the callback.
    * @param baseUrl - This server's base URL (used to build the redirect_uri).
    */
-  getAuthorizationUrl(state: string, baseUrl: string): string {
+  async getAuthorizationUrl(state: string, baseUrl: string): Promise<string> {
     if (!this.credentials) throw new Error('XSUAA not configured');
     const params = new URLSearchParams({
       response_type: 'code',
@@ -226,8 +222,22 @@ export class XsuaaAuth {
     };
   }
 
-  /** Raw XSUAA client credentials — used for the static client-registration endpoint. */
-  getClientCredentials(): XsuaaCredentials | null {
-    return this.credentials;
+  /** XSUAA client credentials — used for the static client-registration endpoint. */
+  getClientCredentials(): StaticClientCredentials | null {
+    if (!this.credentials) return null;
+    return { clientId: this.credentials.clientid, clientSecret: this.credentials.clientsecret };
+  }
+
+  /** XSUAA-specific metadata merged into the client-registration response. */
+  getRegistrationExtras(): Record<string, unknown> {
+    if (!this.credentials) return {};
+    const creds = this.credentials;
+    return {
+      'x-xsuaa-metadata': {
+        url: creds.url,
+        identityzone: creds.identityzone,
+        uaadomain: creds.uaadomain ?? creds.url.replace(/^https?:\/\//, ''),
+      },
+    };
   }
 }

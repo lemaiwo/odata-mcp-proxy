@@ -5,9 +5,9 @@
 // passed directly to the SAP Cloud SDK's executeHttpRequest().
 //
 // Resolution strategy:
-//   1. If running on BTP (VCAP_SERVICES present), use @sap-cloud-sdk/connectivity
-//      to resolve the named destination from the Destination Service.
-//   2. If running locally (no VCAP_SERVICES), fall back to environment variables:
+//   1. If a Destination Service is bound (VCAP_SERVICES contains "destination"),
+//      use @sap-cloud-sdk/connectivity to resolve the named destination.
+//   2. Otherwise (local / self-hosted), fall back to environment variables:
 //      fetch an OAuth2 client-credentials token (cached until expiry) and attach
 //      it as an explicit Authorization header.
 // =============================================================================
@@ -123,7 +123,7 @@ async function getLocalAccessToken(
 async function resolveLocal(destinationName: string): Promise<HttpDestination> {
   const prefix = getEnvVarPrefix(destinationName);
 
-  logger.info('VCAP_SERVICES not found; using local environment variable fallback', {
+  logger.info('No Destination Service binding; using environment variable credentials', {
     destinationName,
     envVarPrefix: prefix,
   });
@@ -175,6 +175,28 @@ async function resolveLocal(destinationName: string): Promise<HttpDestination> {
   } satisfies HttpDestination;
 }
 
+/**
+ * Whether a BTP Destination Service binding is present in VCAP_SERVICES.
+ *
+ * Checks for the `destination` service specifically rather than any
+ * VCAP_SERVICES, so a server running outside BTP can bind only XSUAA (for SSO)
+ * and still use the env-var credentials for its backends.
+ */
+export function hasDestinationBinding(): boolean {
+  const raw = process.env.VCAP_SERVICES;
+  if (!raw) return false;
+  try {
+    const services = JSON.parse(raw) as Record<string, Array<{ label?: string }>>;
+    if (Array.isArray(services.destination) && services.destination.length > 0) return true;
+    return Object.values(services).some(
+      (instances) => Array.isArray(instances) && instances.some((i) => i?.label === 'destination'),
+    );
+  } catch {
+    logger.warn('VCAP_SERVICES is not valid JSON; ignoring it for destination resolution');
+    return false;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
@@ -184,11 +206,11 @@ async function resolveLocal(destinationName: string): Promise<HttpDestination> {
  * that can be passed directly to `executeHttpRequest()`.
  *
  * **Resolution strategy:**
- * 1. When running on BTP (VCAP_SERVICES is present), returns
+ * 1. When a Destination Service is bound (see {@link hasDestinationBinding}), returns
  *    `DestinationFetchOptions` with the destination name and optional JWT.
  *    The SDK resolves the destination lazily (including token exchange for
  *    user-dependent auth types like OAuth2UserTokenExchange).
- * 2. When running locally (no VCAP_SERVICES), environment variables
+ * 2. Otherwise (local / self-hosted), environment variables
  *    (`{PREFIX}_BASE_URL`, `{PREFIX}_TOKEN_URL`, `{PREFIX}_CLIENT_ID`,
  *    `{PREFIX}_CLIENT_SECRET`) are used: an OAuth2 client-credentials
  *    token is fetched (and cached until shortly before expiry) and
@@ -205,9 +227,7 @@ export async function resolveDestination(
   jwt?: string,
 ): Promise<HttpDestinationOrFetchOptions> {
   try {
-    const isOnBtp = Boolean(process.env.VCAP_SERVICES);
-
-    if (isOnBtp) {
+    if (hasDestinationBinding()) {
       logger.info('Using BTP Destination Service (lazy resolution via SDK)', { destinationName });
       return {
         destinationName,

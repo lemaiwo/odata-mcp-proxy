@@ -89,3 +89,26 @@ test('local fallback rejects when the token response has no access_token', async
     /no access_token/,
   );
 });
+
+test('an XSUAA-only VCAP_SERVICES (self-hosted SSO) still uses the env-var credentials', async () => {
+  process.env.VCAP_SERVICES = JSON.stringify({
+    xsuaa: [{ label: 'xsuaa', credentials: { clientid: 'x', clientsecret: 'y', url: 'https://uaa' } }],
+  });
+  mockTokenEndpoint({ access_token: 'tok-xsuaa-only', expires_in: 3600 });
+
+  const destination = (await resolveDestination('local-test-dest')) as HttpDestination;
+
+  assert.deepEqual(destination.headers, { Authorization: 'Bearer tok-xsuaa-only' });
+  delete process.env.VCAP_SERVICES;
+});
+
+test('a bound Destination Service switches to SDK lazy resolution', async () => {
+  process.env.VCAP_SERVICES = JSON.stringify({
+    destination: [{ label: 'destination', credentials: {} }],
+  });
+
+  const options = await resolveDestination('local-test-dest', 'user-jwt');
+
+  assert.deepEqual(options, { destinationName: 'local-test-dest', jwt: 'user-jwt', useCache: true });
+  delete process.env.VCAP_SERVICES;
+});
