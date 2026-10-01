@@ -105,13 +105,13 @@ class Svg:
         w = ' font-weight="700"' if bold else ""
         self.add(f'<text x="{x}" y="{y}" font-size="11.5" fill="{color}" text-anchor="{anchor}"{w}>{esc(text)}</text>')
 
-    def legend_and_steps(self, y, steps):
+    def legend_and_steps(self, y, steps, btp=True):
         self.add(f'<line x1="30" y1="{y}" x2="{W-30}" y2="{y}" stroke="#D5DADD"/>')
         # legend
         lx, ly = 30, y + 30
         self.add(f'<text x="{lx}" y="{ly}" font-size="13" font-weight="700" fill="{TEXT}">Legend</text>')
-        items = [
-            ("rect", BTP_STROKE, BTP_FILL, "SAP BTP"),
+        items = [("rect", BTP_STROKE, BTP_FILL, "SAP BTP")] if btp else []
+        items += [
             ("rect", NON_STROKE, NON_FILL, "Non-SAP / customer"),
             ("line", LINE, None, "API call / data flow"),
             ("dash", AUTH, None, "Authentication / token flow"),
@@ -269,3 +269,47 @@ o.legend_and_steps(770, [
 ])
 open(OUT / "on-premise-deployment.svg", "w").write(o.render())
 print("ok")
+
+# ─────────────────────────── Diagram 3: fully on-premise, no BTP ───────────────────────────
+n = Svg("OData MCP Proxy — fully on-premise, without SAP BTP",
+        "Node.js server, any OpenID Connect provider and SAP systems that trust the proxy directly", 900)
+
+n.area(30, 110, 250, 230, "AI clients", sap=False)
+n.box(50, 160, 210, 150, "MCP client", ["Claude, Copilot Studio,", "MCP Inspector, …", "Streamable HTTP + OAuth"], sap=False, icon="user")
+n.area(30, 540, 250, 190, "OpenID Connect provider", sap=False)
+n.box(50, 590, 210, 110, "Any OIDC IdP", ["Entra ID, Okta, Keycloak,", "SAP IAS, Auth0, …"], sap=False, icon="id")
+
+n.area(320, 90, 1150, 650, "Customer data center / private network", sap=False)
+n.box(350, 180, 200, 110, "Reverse proxy", ["HTTPS / TLS termination", "nginx, IIS, Caddy, …"], sap=False, icon="proxy")
+n.box(600, 165, 260, 225, "odata-mcp-proxy", ["Node.js server (systemd, Docker)", "/mcp  Streamable HTTP", "/oauth/*  OAuth proxy", "OIDC JWT validation (JWKS)", "Per-user token cache", "SAML assertion signing"], sap=False, icon="app")
+n.box(600, 445, 200, 90, "Secret store", ["SAML signing key,", "client secrets"], sap=False, icon="key")
+
+n.area(955, 135, 490, 435, "SAP landscape", sap=False, sub=True)
+n.box(985, 180, 430, 165, "SAP S/4HANA", ["OAuth 2.0 server (SOAUTH2)", "SAML2 trusted provider: the proxy", "User mapping by e-mail or user ID", "OData services run as the business user"], sap=False, icon="erp")
+n.box(985, 400, 430, 130, "Other SAP ABAP systems", ["SAP ECC, BW/4HANA, Gateway hub, …", "Same trust set-up, one destination each"], sap=False, icon="erp")
+n.box(985, 600, 460, 110, "Per-destination configuration", ["{PREFIX}_AUTH_TYPE = saml-bearer  (per user)", "or client-credentials (technical user)"], sap=False, icon="key")
+
+n.line([(260, 235), (350, 235)])
+n.line([(550, 235), (600, 235)])
+n.step(1, 305, 235)
+n.line([(600, 360), (575, 360), (575, 645), (260, 645)], kind="auth")
+n.step(2, 575, 500)
+n.label(420, 633, "OIDC login (proxied) · JWKS", anchor="middle")
+n.line([(700, 390), (700, 445)], kind="auth", arrow_start=True)
+n.line([(860, 230), (985, 230)], kind="auth")
+n.step(3, 922, 230)
+n.label(912, 214, "SAML bearer", anchor="middle")
+n.line([(860, 310), (985, 310)])
+n.step(4, 922, 310)
+n.label(912, 294, "OData", anchor="middle")
+n.line([(860, 370), (905, 370), (905, 465), (985, 465)])
+n.step(5, 905, 418)
+
+n.legend_and_steps(770, [
+    "MCP client calls /mcp over HTTPS with a bearer token from the corporate IdP",
+    "Login is proxied to the OIDC provider; tokens are validated against its JWKS",
+    "Proxy signs a SAML assertion for the user; SAP's OAuth server returns a user token",
+    "OData request to S/4HANA runs as the signed-in business user",
+    "Each further ABAP system is its own destination with its own trust and AUTH_TYPE",
+], btp=False)
+open(OUT / "on-premise-no-btp.svg", "w").write(n.render())

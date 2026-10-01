@@ -155,6 +155,10 @@ credentials are still read from the `{PREFIX}_*` environment variables.
 
 ## Propagating the user to SAP
 
+A fully on-premise set-up needs no SAP BTP at all — just an OIDC provider, the Node.js server and SAML2 trust in each SAP system:
+
+![OData MCP Proxy fully on-premise, without SAP BTP](architecture/on-premise-no-btp.svg)
+
 With SSO enabled, each `/mcp` request carries the user's validated access
 token. An env-var destination can turn it into a backend token **for that
 user**, independently of which OIDC provider issued it, by setting
