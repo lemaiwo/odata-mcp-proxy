@@ -510,7 +510,9 @@ OIDC_SCOPES="openid profile offline_access api://<client-id>/access_as_user" \
 npm start
 ```
 
-See [docs/SSO.md](docs/SSO.md) for per-IdP setup, scope/role mapping, and production notes.
+By default SAP is called with a technical user. Set `{PREFIX}_AUTH_TYPE` to `saml-bearer`, `jwt-bearer` or `token-exchange` to call SAP as the signed-in user, whichever OIDC provider they logged in with.
+
+See [docs/SSO.md](docs/SSO.md) for per-IdP setup, scope/role mapping, user propagation to SAP, and production notes.
 
 ---
 

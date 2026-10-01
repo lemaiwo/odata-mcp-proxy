@@ -86,14 +86,15 @@ export async function start(options: StartOptions = {}): Promise<void> {
     client: ODataClient;
   }
 
-  // Inbound auth (HTTP only). Only XSUAA tokens are forwarded to destination
-  // resolution — the BTP Destination Service cannot use tokens from other IdPs.
+  // Inbound auth (HTTP only). The validated user token always reaches
+  // destination resolution (env-var destinations may propagate the user), but
+  // only XSUAA tokens are handed to the BTP Destination Service.
   const auth = config.mcpTransport === 'http' ? createAuthProvider(config) : undefined;
-  const forwardUserToken = auth?.forwardsUserToken ?? false;
+  const forwardToDestinationService = auth?.forwardsUserToken ?? false;
 
   const odataClients: ODataClientEntry[] = apiConfig.apis.map((apiDef) => {
     const getDestination = (jwt?: string) =>
-      resolveDestination(apiDef.destination, forwardUserToken ? jwt : undefined);
+      resolveDestination(apiDef.destination, jwt, { forwardToDestinationService });
 
     const client = new ODataClient(
       getDestination,

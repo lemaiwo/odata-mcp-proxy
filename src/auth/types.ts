@@ -28,9 +28,10 @@ export interface AuthProvider {
   readonly kind: 'xsuaa' | 'oidc' | 'none';
 
   /**
-   * Whether the validated user token should be forwarded to destination
-   * resolution. Only meaningful for XSUAA tokens on BTP, where the SDK uses
-   * them for user token exchange / principal propagation.
+   * Whether the validated user token may be handed to the BTP Destination
+   * Service. Only XSUAA tokens qualify (the SDK uses them for user token
+   * exchange / principal propagation). Env-var destinations receive the token
+   * regardless and use it only for per-user AUTH_TYPEs.
    */
   readonly forwardsUserToken: boolean;
 

@@ -36,7 +36,8 @@ interface OidcDiscovery {
 
 export class OidcAuth implements AuthProvider {
   readonly kind = 'oidc' as const;
-  // OIDC tokens mean nothing to the BTP Destination Service — never forward them.
+  // OIDC tokens mean nothing to the BTP Destination Service — never hand them over.
+  // Env-var destinations can still propagate the user (see user-propagation.ts).
   readonly forwardsUserToken = false;
 
   private discovery: Promise<OidcDiscovery> | null = null;

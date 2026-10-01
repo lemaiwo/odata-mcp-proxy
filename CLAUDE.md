@@ -74,7 +74,8 @@ API categories (can be filtered via `ENABLED_API_CATEGORIES` env var):
 | `src/server/http.ts` | Express HTTP server and session management |
 | `src/auth/` | Inbound auth providers behind the `AuthProvider` interface: XSUAA (`xsuaa-auth.ts`) and generic OIDC (`oidc-auth.ts`); `createAuthProvider()` picks one from config |
 | `src/client/odata-client.ts` | OData HTTP client (GET/POST/PATCH/DELETE, binary downloads) |
-| `src/client/destination-service.ts` | Credential resolution (BTP vs local) |
+| `src/client/destination-service.ts` | Credential resolution (BTP vs local; per-destination `{PREFIX}_AUTH_TYPE`) |
+| `src/client/user-propagation.ts` | Per-user backend grants for env-var destinations: signed SAML bearer assertion, JWT bearer, token exchange |
 | `src/client/retry.ts` | Exponential backoff retry logic |
 | `src/tools/registry.ts` | Tool registration and OData call handlers |
 | `src/ui/` | Config-driven MCP-UI views (lazy-loaded; template rendering, data fetching, tool/resource registration) |
@@ -151,6 +152,8 @@ CPI_DESTINATION_TOKEN_URL=https://subdomain.authentication.eu10.hana.ondemand.co
 CPI_DESTINATION_CLIENT_ID=...
 CPI_DESTINATION_CLIENT_SECRET=...
 ```
+
+`{PREFIX}_AUTH_TYPE` defaults to `client-credentials` (technical user). `saml-bearer`, `jwt-bearer` and `token-exchange` call the backend as the SSO-authenticated user (HTTP + OIDC/XSUAA only; fails closed without a user token) — see `docs/SSO.md`.
 
 ### BTP Deployment
 

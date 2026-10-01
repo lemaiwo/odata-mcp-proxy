@@ -26,7 +26,7 @@
     "start:http": "MCP_TRANSPORT=http node dist/index.js",
     "start:stdio": "MCP_TRANSPORT=stdio node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/discovery.test.ts test/discovery-tools.test.ts test/destination-local.test.ts test/auth-oidc.test.ts test/e2e-stdio.test.ts",
+    "test": "npm run build && tsx --test test/ui-templates.test.ts test/ui-data.test.ts test/ui-register.test.ts test/discovery.test.ts test/discovery-tools.test.ts test/destination-local.test.ts test/auth-oidc.test.ts test/user-propagation.test.ts test/e2e-stdio.test.ts",
     "inspect": "npx @modelcontextprotocol/inspector",
     "inspect:http": "npx @modelcontextprotocol/inspector --cli http://localhost:4004/mcp",
     "build:btp": "mbt build",
@@ -44,6 +44,7 @@
     "express": "^4.21.0",
     "jose": "^5.10.0",
     "winston": "^3.17.0",
+    "xml-crypto": "^6.3.2",
     "zod": "^3.24.0"
   },
   "devDependencies": {
