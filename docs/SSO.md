@@ -1,5 +1,7 @@
 # Self-Hosted Deployment with SSO
 
+![OData MCP Proxy self-hosted on-premise](architecture/on-premise-deployment.svg)
+
 The server does not need SAP BTP to run. Any Node.js host (VM, on-prem server,
 container, Azure/AWS/GCP) can run it in HTTP mode, with single sign-on in front
 of the `/mcp` endpoint.

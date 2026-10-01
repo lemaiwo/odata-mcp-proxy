@@ -490,6 +490,8 @@ await start({
 
 ## BTP Deployment (Standalone)
 
+![OData MCP Proxy deployed on SAP BTP](docs/architecture/btp-deployment.svg)
+
 When working with the source repository directly (not as an npm dependency), the project includes its own `mta.yaml` for deployment to SAP BTP Cloud Foundry. The MTA provisions the required service instances (Destination, Connectivity, XSUAA) and deploys the server as a Node.js application using HTTP transport.
 
 ```bash
@@ -500,6 +502,8 @@ npm run deploy:btp   # Deploy to Cloud Foundry
 For detailed deployment instructions, destination configuration, and XSUAA setup, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Self-Hosted Deployment with SSO
+
+![OData MCP Proxy self-hosted on-premise](docs/architecture/on-premise-deployment.svg)
 
 BTP is optional. The server runs on any Node.js host in HTTP mode, with single sign-on via any OpenID Connect provider (Entra ID, Okta, Keycloak, SAP IAS, …) or via XSUAA from outside BTP:
 
